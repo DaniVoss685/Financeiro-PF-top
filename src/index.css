@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
+}
+
+@layer base {
+  :root {
+    --background: #F4F7F6;
+    --foreground: #1A1D1E;
+    --card: #FFFFFF;
+    --card-foreground: #2B303A;
+    --border: #E2E8F0;
+    --primary: #0F8265;
+    --primary-foreground: #FFFFFF;
+    --muted: #F1F5F9;
+    --muted-foreground: #64748B;
+    --success: #0F8265;
+    --destructive: #EF4444;
+  }
+
+  .dark {
+    --background: #080808;
+    --foreground: #F4F4F5;
+    --card: #111111;
+    --card-foreground: #F4F4F5;
+    --border: #1a1a1a;
+    --primary: #BCF24B;
+    --primary-foreground: #000000;
+    --muted: #1a1a1a;
+    --muted-foreground: #71717A;
+    --success: #BCF24B;
+    --destructive: #EF4444;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    @apply antialiased;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply font-sans;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-gradient-gold {
+    color: var(--primary);
+  }
+  
+  .dark .text-gradient-gold {
+    color: var(--primary);
+  }
+  
+  .bg-gradient-gold {
+    background-color: var(--primary);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  @keyframes tada {
+    from {
+      transform: scale3d(1, 1, 1);
+    }
+    10%, 20% {
+      transform: scale3d(0.9, 0.9, 0.9) rotate3d(0, 0, 1, -3deg);
+    }
+    30%, 50%, 70%, 90% {
+      transform: scale3d(1.1, 1.1, 1.1) rotate3d(0, 0, 1, 3deg);
+    }
+    40%, 60%, 80% {
+      transform: scale3d(1.1, 1.1, 1.1) rotate3d(0, 0, 1, -3deg);
+    }
+    to {
+      transform: scale3d(1, 1, 1);
+    }
+  }
+
+  .animate-tada {
+    animation: tada 1s infinite;
+  }
+}
