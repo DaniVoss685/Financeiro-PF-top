@@ -25,7 +25,8 @@ export default function TransactionsPage() {
     excludeRecurringMonth,
     reminders,
     addReminder,
-    updateReminder
+    updateReminder,
+    markTransactionAsPaid
   } = useAppContext();
   
   const [activeModal, setActiveModal] = useState<string | null>(null);

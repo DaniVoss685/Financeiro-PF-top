@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '../lib/supabaseClient';
 
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'CREDIT_CARD';
 export type TransactionStatus = 'OPEN' | 'PAID' | 'RECEIVED' | 'OVERDUE';
@@ -106,35 +107,34 @@ interface AppState {
   goals: Goal[];
   toggleTheme: () => void;
   // Actions
-  addBank: (bank: Omit<Bank, 'id'>) => void;
+  addBank: (bank: Omit<Bank, 'id'>) => Promise<void>;
   addTransaction: (transaction: Omit<Transaction, 'id'>) => string;
-  updateTransaction: (id: string, transaction: Partial<Transaction>) => void;
-  deleteTransaction: (id: string) => void;
-  addCategory: (category: Omit<Category, 'id' | 'isActive'>) => string;
-  updateCategory: (id: string, category: Partial<Category>) => void;
-  markTransactionAsPaid: (id: string, paymentDate: string) => void;
-  addGoal: (goal: Omit<Goal, 'id'>) => void;
-  updateGoal: (id: string, goal: Partial<Goal>) => void;
-  deleteGoal: (id: string) => void;
-  addCreditCard: (card: Omit<CreditCard, 'id' | 'availableLimit' | 'usedLimit'>) => void;
-  updateCreditCard: (id: string, card: Partial<CreditCard>) => void;
-  deleteCreditCard: (id: string) => void;
-  excludeRecurringMonth: (originalId: string, monthYear: string) => void;
-  payAllOverdue: () => void;
-  addReminder: (reminder: Omit<Reminder, 'id' | 'isCompleted' | 'createdAt'>) => void;
-  updateReminder: (id: string, reminder: Partial<Reminder>) => void;
-  deleteReminder: (id: string) => void;
-  completeReminder: (id: string) => void;
+  updateTransaction: (id: string, transaction: Partial<Transaction>) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  addCategory: (category: Omit<Category, 'id' | 'isActive'>) => Promise<string>;
+  updateCategory: (id: string, category: Partial<Category>) => Promise<void>;
+  markTransactionAsPaid: (id: string, paymentDate: string) => Promise<void>;
+  addGoal: (goal: Omit<Goal, 'id'>) => Promise<void>;
+  updateGoal: (id: string, goal: Partial<Goal>) => Promise<void>;
+  deleteGoal: (id: string) => Promise<void>;
+  addCreditCard: (card: Omit<CreditCard, 'id' | 'availableLimit' | 'usedLimit'>) => Promise<void>;
+  updateCreditCard: (id: string, card: Partial<CreditCard>) => Promise<void>;
+  deleteCreditCard: (id: string) => Promise<void>;
+  excludeRecurringMonth: (originalId: string, monthYear: string) => Promise<void>;
+  payAllOverdue: () => Promise<void>;
+  addReminder: (reminder: Omit<Reminder, 'id' | 'isCompleted' | 'createdAt'>) => Promise<void>;
+  updateReminder: (id: string, reminder: Partial<Reminder>) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
+  completeReminder: (id: string) => Promise<void>;
   reminders: Reminder[];
   notifications: Notification[];
 
   // User auth fields
-  users: User[];
   currentUser: User | null;
-  registerUser: (user: Omit<User, 'id'>) => boolean;
-  loginUser: (username: string, password?: string) => boolean;
-  logoutUser: () => void;
-  updateUserProfile: (updates: Partial<User>) => void;
+  registerUser: (user: Omit<User, 'id'>) => Promise<boolean>;
+  loginUser: (username: string, password?: string) => Promise<boolean>;
+  logoutUser: () => Promise<void>;
+  updateUserProfile: (updates: Partial<User>) => Promise<void>;
 }
 
 export interface Notification {
@@ -175,44 +175,9 @@ const AppContext = createContext<AppState | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // User Authentication State
-  const [users, setUsers] = useState<User[]>(() => {
-    const stored = localStorage.getItem('noble_users');
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        // fallback
-      }
-    }
-    // Setup default initial user
-    const defaultUser: User = {
-      id: 'default-user-id',
-      username: 'noble',
-      password: '123',
-      name: 'Noble Admin',
-      phone: '5511999999999',
-      avatar: '👑'
-    };
-    const initialUsers = [defaultUser];
-    localStorage.setItem('noble_users', JSON.stringify(initialUsers));
-    return initialUsers;
-  });
-
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('noble_current_user');
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        // fallback
-      }
-    }
-    return null;
-  });
-
-  // State managed per user
+  // States per user
   const [banks, setBanks] = useState<Bank[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -220,38 +185,247 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
 
-  // Track state loading prevents saves while switching
+  // Track state loading
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Listen to Supabase Session changes on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchProfileAndSetUser(session.user);
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await fetchProfileAndSetUser(session.user);
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const fetchProfileAndSetUser = async (supabaseUser: any) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching user profile:', error);
+      }
+
+      setCurrentUser({
+        id: supabaseUser.id,
+        username: profile?.username || supabaseUser.email?.split('@')[0] || 'user',
+        name: profile?.name || supabaseUser.user_metadata?.name || 'User',
+        phone: profile?.phone || '',
+        avatar: profile?.avatar || '👑'
+      });
+    } catch (e) {
+      console.error('Error setting profile state:', e);
+    }
+  };
+
+  // Seed default data for first-time users
+  const seedDefaultDataForUser = async (uId: string) => {
+    try {
+      // 1. Seed Banks
+      const dbBanks = mockBanks.map(b => ({
+        id: b.id,
+        user_id: uId,
+        name: b.name,
+        type: b.type,
+        initial_balance: b.initialBalance,
+        current_balance: b.currentBalance,
+        color: b.color,
+        icon: b.icon
+      }));
+      await supabase.from('banks').insert(dbBanks);
+
+      // 2. Seed Credit Cards
+      const dbCards = mockCards.map(c => ({
+        id: c.id,
+        user_id: uId,
+        name: c.name,
+        bank_id: c.bankId,
+        brand: c.brand,
+        last_four: c.lastFour,
+        total_limit: c.totalLimit,
+        used_limit: c.usedLimit,
+        available_limit: c.availableLimit,
+        closing_day: c.closingDay,
+        due_day: c.dueDay,
+        color: c.color
+      }));
+      await supabase.from('credit_cards').insert(dbCards);
+
+      // 3. Seed Transactions
+      const dbTransactions = mockTransactions.map(t => ({
+        id: t.id,
+        user_id: uId,
+        type: t.type,
+        description: t.description,
+        amount: t.amount,
+        category_id: t.categoryId,
+        bank_id: t.bankId,
+        competence_date: t.competenceDate,
+        due_date: t.dueDate,
+        payment_date: t.paymentDate,
+        status: t.status,
+        is_recurring: t.isRecurring,
+        is_installment: t.isInstallment,
+        created_at: new Date().toISOString()
+      }));
+      await supabase.from('transactions').insert(dbTransactions);
+
+      // Instantly populates local states
+      setBanks(mockBanks);
+      setCreditCards(mockCards);
+      setCategories(mockCategories);
+      setTransactions(mockTransactions);
+      setGoals([]);
+      setReminders([]);
+    } catch (err) {
+      console.error("Error seeding default user data:", err);
+    }
+  };
 
   // Synchronise arrays whenever currentUser changes
   useEffect(() => {
     if (currentUser) {
       setIsLoaded(false);
       const uId = currentUser.id;
-      
-      const savedBanks = localStorage.getItem(`noble_user_banks_${uId}`);
-      const savedCards = localStorage.getItem(`noble_user_creditCards_${uId}`);
-      const savedCategories = localStorage.getItem(`noble_user_categories_${uId}`);
-      const savedTransactions = localStorage.getItem(`noble_user_transactions_${uId}`);
-      const savedGoals = localStorage.getItem(`noble_user_goals_${uId}`);
-      const savedReminders = localStorage.getItem(`noble_user_reminders_${uId}`);
 
-      setBanks(savedBanks ? JSON.parse(savedBanks) : mockBanks);
-      setCreditCards(savedCards ? JSON.parse(savedCards) : mockCards);
-      setCategories(savedCategories ? JSON.parse(savedCategories) : mockCategories);
-      setTransactions(savedTransactions ? JSON.parse(savedTransactions) : mockTransactions);
-      setGoals(savedGoals ? JSON.parse(savedGoals) : []);
-      setReminders(savedReminders ? JSON.parse(savedReminders) : []);
+      const loadUserData = async () => {
+        try {
+          const [
+            { data: dbBanks },
+            { data: dbCards },
+            { data: dbCategories },
+            { data: dbTransactions },
+            { data: dbGoals },
+            { data: dbReminders }
+          ] = await Promise.all([
+            supabase.from('banks').select('*').eq('user_id', uId),
+            supabase.from('credit_cards').select('*').eq('user_id', uId),
+            supabase.from('categories').select('*'), // RLS handles categories selection automatically
+            supabase.from('transactions').select('*').eq('user_id', uId),
+            supabase.from('goals').select('*').eq('user_id', uId),
+            supabase.from('reminders').select('*').eq('user_id', uId)
+          ]);
 
-      // If user is brand new and didn't have saved arrays yet, save defaults right away
-      if (!savedBanks) localStorage.setItem(`noble_user_banks_${uId}`, JSON.stringify(mockBanks));
-      if (!savedCards) localStorage.setItem(`noble_user_creditCards_${uId}`, JSON.stringify(mockCards));
-      if (!savedCategories) localStorage.setItem(`noble_user_categories_${uId}`, JSON.stringify(mockCategories));
-      if (!savedTransactions) localStorage.setItem(`noble_user_transactions_${uId}`, JSON.stringify(mockTransactions));
-      if (!savedGoals) localStorage.setItem(`noble_user_goals_${uId}`, JSON.stringify([]));
-      if (!savedReminders) localStorage.setItem(`noble_user_reminders_${uId}`, JSON.stringify([]));
+          if (!dbBanks || dbBanks.length === 0) {
+            // First time user, seed!
+            await seedDefaultDataForUser(uId);
+          } else {
+            setBanks(dbBanks.map(b => ({
+              id: b.id,
+              name: b.name,
+              type: b.type,
+              initialBalance: Number(b.initial_balance),
+              currentBalance: Number(b.current_balance),
+              color: b.color,
+              notes: b.notes,
+              icon: b.icon
+            })));
 
-      setIsLoaded(true);
+            setCreditCards((dbCards || []).map(c => ({
+              id: c.id,
+              name: c.name,
+              bankId: c.bank_id,
+              brand: c.brand,
+              lastFour: c.last_four,
+              totalLimit: Number(c.total_limit),
+              usedLimit: Number(c.used_limit),
+              availableLimit: Number(c.available_limit),
+              closingDay: c.closing_day,
+              dueDay: c.due_day,
+              color: c.color,
+              notes: c.notes
+            })));
+
+            // Merge local mocks with DB categories to ensure defaults are always available
+            const mergedCategories = [...mockCategories];
+            (dbCategories || []).forEach(dbc => {
+              if (!mergedCategories.some(mc => mc.id === dbc.id)) {
+                mergedCategories.push({
+                  id: dbc.id,
+                  name: dbc.name,
+                  type: dbc.type,
+                  color: dbc.color,
+                  icon: dbc.icon,
+                  monthlyGoal: dbc.monthly_goal ? Number(dbc.monthly_goal) : undefined,
+                  isActive: dbc.is_active
+                });
+              }
+            });
+            setCategories(mergedCategories);
+
+            setTransactions((dbTransactions || []).map(t => ({
+              id: t.id,
+              type: t.type,
+              description: t.description,
+              amount: Number(t.amount),
+              categoryId: t.category_id,
+              bankId: t.bank_id,
+              creditCardId: t.credit_card_id,
+              competenceDate: t.competence_date,
+              dueDate: t.due_date,
+              paymentDate: t.payment_date,
+              status: t.status,
+              isRecurring: t.is_recurring,
+              isInstallment: t.is_installment,
+              isPartial: t.is_partial,
+              notes: t.notes,
+              createdAt: t.created_at,
+              installmentTotal: t.installment_total,
+              installmentCurrent: t.installment_current,
+              recurringExclusions: t.recurring_exclusions || [],
+              linkedGoalId: t.linked_goal_id
+            })));
+
+            setGoals((dbGoals || []).map(g => ({
+              id: g.id,
+              name: g.name,
+              targetAmount: Number(g.target_amount),
+              currentAmount: Number(g.current_amount),
+              deadlineDate: g.deadline_date,
+              type: g.type,
+              categoryId: g.category_id,
+              bankId: g.bank_id,
+              color: g.color,
+              icon: g.icon
+            })));
+
+            setReminders((dbReminders || []).map(r => ({
+              id: r.id,
+              title: r.title,
+              description: r.description,
+              dueDate: r.due_date,
+              isCompleted: r.is_completed,
+              createdAt: r.created_at,
+              transactionId: r.transaction_id,
+              method: r.method,
+              whatsappSent: r.whatsapp_sent
+            })));
+          }
+
+          setIsLoaded(true);
+        } catch (e) {
+          console.error("Error loading user state from Supabase:", e);
+        }
+      };
+
+      loadUserData();
     } else {
       setBanks([]);
       setCreditCards([]);
@@ -262,57 +436,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsLoaded(false);
     }
   }, [currentUser]);
-
-  // Persists to localStorage only when fully loaded and when there's an active user
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_banks_${currentUser.id}`, JSON.stringify(banks));
-    }
-  }, [banks, currentUser, isLoaded]);
-
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_creditCards_${currentUser.id}`, JSON.stringify(creditCards));
-    }
-  }, [creditCards, currentUser, isLoaded]);
-
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_categories_${currentUser.id}`, JSON.stringify(categories));
-    }
-  }, [categories, currentUser, isLoaded]);
-
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_transactions_${currentUser.id}`, JSON.stringify(transactions));
-    }
-  }, [transactions, currentUser, isLoaded]);
-
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_goals_${currentUser.id}`, JSON.stringify(goals));
-    }
-  }, [goals, currentUser, isLoaded]);
-
-  useEffect(() => {
-    if (currentUser && isLoaded) {
-      localStorage.setItem(`noble_user_reminders_${currentUser.id}`, JSON.stringify(reminders));
-    }
-  }, [reminders, currentUser, isLoaded]);
-
-  // Sync current user to localStorage
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('noble_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('noble_current_user');
-    }
-  }, [currentUser]);
-
-  // Sync users list to localStorage
-  useEffect(() => {
-    localStorage.setItem('noble_users', JSON.stringify(users));
-  }, [users]);
 
   const notifications: Notification[] = (() => {
     const now = new Date();
@@ -327,8 +450,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dueDate = new Date(t.dueDate);
       dueDate.setHours(0, 0, 0, 0);
 
-      // Rule: if a transaction was created historically on or after its due date,
-      // it means the user registered a past transaction directly. Do not trigger due/overdue alerts for it.
       if (t.createdAt) {
         const createdDate = new Date(t.createdAt);
         createdDate.setHours(0, 0, 0, 0);
@@ -370,7 +491,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   })();
 
   useEffect(() => {
-    // Apply theme class to document
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -382,11 +502,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  const addBank = (bank: Omit<Bank, 'id'>) => {
-    setBanks(prev => [...prev, { ...bank, id: uuidv4() }]);
+  const addBank = async (bank: Omit<Bank, 'id'>) => {
+    if (!currentUser) return;
+    const newId = uuidv4();
+    const newBank = { ...bank, id: newId };
+    setBanks(prev => [...prev, newBank]);
+
+    await supabase.from('banks').insert({
+      id: newId,
+      user_id: currentUser.id,
+      name: bank.name,
+      type: bank.type,
+      initial_balance: bank.initialBalance,
+      current_balance: bank.currentBalance,
+      color: bank.color,
+      notes: bank.notes,
+      icon: bank.icon
+    });
   };
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
+    if (!currentUser) return '';
     const newId = uuidv4();
     const newTransaction = {
       ...t,
@@ -400,7 +536,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setBanks(prev => prev.map(bank => {
         if (bank.id === t.bankId) {
           const amount = t.type === 'INCOME' ? t.amount : -t.amount;
-          return { ...bank, currentBalance: bank.currentBalance + amount };
+          const updatedBal = bank.currentBalance + amount;
+          
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          
+          return { ...bank, currentBalance: updatedBal };
         }
         return bank;
       }));
@@ -410,10 +550,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (t.type === 'EXPENSE' && t.creditCardId) {
       setCreditCards(prev => prev.map(card => {
         if (card.id === t.creditCardId) {
+          const updatedUsed = card.usedLimit + t.amount;
+          const updatedAvail = card.availableLimit - t.amount;
+
+          supabase.from('credit_cards').update({
+            used_limit: updatedUsed,
+            available_limit: updatedAvail
+          }).eq('id', card.id).then();
+
           return {
             ...card,
-            usedLimit: card.usedLimit + t.amount,
-            availableLimit: card.availableLimit - t.amount
+            usedLimit: updatedUsed,
+            availableLimit: updatedAvail
           };
         }
         return card;
@@ -424,20 +572,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (t.linkedGoalId && t.type === 'EXPENSE' && (t.status === 'PAID' || t.status === 'RECEIVED')) {
        setGoals(prevGoals => prevGoals.map(goal => {
          if (goal.id === t.linkedGoalId) {
-           return { ...goal, currentAmount: goal.currentAmount + t.amount };
+           const updatedAmt = goal.currentAmount + t.amount;
+           supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+           return { ...goal, currentAmount: updatedAmt };
          }
          return goal;
        }));
     }
 
-    // Reimbursement logic: if it's an expense in the reimbursement category, create a receivable
+    // Reimbursement logic
     if (t.type === 'EXPENSE' && t.categoryId === 'cat-reimb') {
       const now = new Date();
       const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       lastDayOfMonth.setHours(23, 59, 59, 999);
 
-      const incomeTransaction: Transaction = {
-        id: uuidv4(),
+      const incomeTransaction: Omit<Transaction, 'id'> = {
         type: 'INCOME',
         description: `Reembolso: ${t.description}`,
         amount: t.amount,
@@ -451,13 +600,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notes: `Gerado automaticamente a partir da despesa: ${t.description}`
       };
 
-      setTransactions(prev => [...prev, incomeTransaction]);
+      setTimeout(() => addTransaction(incomeTransaction), 100);
     }
+
+    supabase.from('transactions').insert({
+      id: newId,
+      user_id: currentUser.id,
+      type: t.type,
+      description: t.description,
+      amount: t.amount,
+      category_id: t.categoryId,
+      bank_id: t.bankId,
+      credit_card_id: t.creditCardId,
+      competence_date: t.competenceDate,
+      due_date: t.dueDate,
+      payment_date: t.paymentDate,
+      status: t.status,
+      is_recurring: t.isRecurring,
+      is_installment: t.isInstallment,
+      is_partial: t.isPartial || false,
+      notes: t.notes,
+      installment_total: t.installmentTotal,
+      installment_current: t.installmentCurrent,
+      recurring_exclusions: t.recurringExclusions || [],
+      linked_goal_id: t.linkedGoalId
+    }).then();
 
     return newId;
   };
 
-  const updateTransaction = (id: string, updates: Partial<Transaction>) => {
+  const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
     setTransactions(prev => prev.map(t => {
       if (t.id === id) {
         // Handle credit card limit updates
@@ -478,6 +650,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 updatedCard.usedLimit += newAmount;
                 updatedCard.availableLimit -= newAmount;
               }
+
+              supabase.from('credit_cards').update({
+                used_limit: updatedCard.usedLimit,
+                available_limit: updatedCard.availableLimit
+              }).eq('id', card.id).then();
+
               return updatedCard;
             }));
           }
@@ -488,43 +666,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const newPaid = updates.status === 'PAID' || updates.status === 'RECEIVED' || (updates.status === undefined && oldPaid);
 
         if (oldPaid && !newPaid) {
-          // Was paid, now not. Add back expense / subtract income
           setBanks(prevBanks => prevBanks.map(bank => {
             if (bank.id === t.bankId) {
               const amount = t.type === 'INCOME' ? -t.amount : t.amount;
-              return { ...bank, currentBalance: bank.currentBalance + amount };
+              const updatedBal = bank.currentBalance + amount;
+              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+              return { ...bank, currentBalance: updatedBal };
             }
             return bank;
           }));
         } else if (!oldPaid && newPaid) {
-          // Was not paid, now is. Subtract expense / add income
           setBanks(prevBanks => prevBanks.map(bank => {
             if (bank.id === (updates.bankId || t.bankId)) {
               const amount = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
-              return { ...bank, currentBalance: bank.currentBalance + amount };
+              const updatedBal = bank.currentBalance + amount;
+              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+              return { ...bank, currentBalance: updatedBal };
             }
             return bank;
           }));
         } else if (oldPaid && newPaid) {
-          // Paid in both. Update balance with difference
           setBanks(prevBanks => prevBanks.map(bank => {
             if (bank.id === (updates.bankId || t.bankId) && bank.id === t.bankId) {
               const oldAmt = t.type === 'INCOME' ? t.amount : -t.amount;
               const newAmt = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
-              return { ...bank, currentBalance: bank.currentBalance - oldAmt + newAmt };
+              const updatedBal = bank.currentBalance - oldAmt + newAmt;
+              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+              return { ...bank, currentBalance: updatedBal };
             }
-            // Handle bank change while staying paid
             if (updates.bankId && updates.bankId !== t.bankId) {
                 if (bank.id === t.bankId) {
-                    return { ...bank, currentBalance: bank.currentBalance - (t.type === 'INCOME' ? t.amount : -t.amount) };
+                    const updatedBal = bank.currentBalance - (t.type === 'INCOME' ? t.amount : -t.amount);
+                    supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+                    return { ...bank, currentBalance: updatedBal };
                 }
                 if (bank.id === updates.bankId) {
-                    return { ...bank, currentBalance: bank.currentBalance + ((updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount)) };
+                    const updatedBal = bank.currentBalance + ((updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount));
+                    supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+                    return { ...bank, currentBalance: updatedBal };
                 }
             }
             return bank;
           }));
         }
+
+        // Save actual updates to Supabase
+        supabase.from('transactions').update({
+          type: updates.type || t.type,
+          description: updates.description || t.description,
+          amount: updates.amount !== undefined ? updates.amount : t.amount,
+          category_id: updates.categoryId || t.categoryId,
+          bank_id: updates.bankId !== undefined ? updates.bankId : t.bankId,
+          credit_card_id: updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId,
+          competence_date: updates.competenceDate || t.competenceDate,
+          due_date: updates.dueDate || t.dueDate,
+          payment_date: updates.paymentDate !== undefined ? updates.paymentDate : t.paymentDate,
+          status: updates.status || t.status,
+          is_recurring: updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring,
+          is_installment: updates.isInstallment !== undefined ? updates.isInstallment : t.isInstallment,
+          is_partial: updates.isPartial !== undefined ? updates.isPartial : t.isPartial,
+          notes: updates.notes !== undefined ? updates.notes : t.notes,
+          installment_total: updates.installmentTotal !== undefined ? updates.installmentTotal : t.installmentTotal,
+          installment_current: updates.installmentCurrent !== undefined ? updates.installmentCurrent : t.installmentCurrent,
+          recurring_exclusions: updates.recurringExclusions || t.recurringExclusions,
+          linked_goal_id: updates.linkedGoalId !== undefined ? updates.linkedGoalId : t.linkedGoalId
+        }).eq('id', id).then();
 
         return { ...t, ...updates };
       }
@@ -532,7 +738,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  const deleteTransaction = (id: string) => {
+  const deleteTransaction = async (id: string) => {
     const t = transactions.find(tx => tx.id === id);
     if (!t) return;
 
@@ -540,7 +746,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setBanks(prev => prev.map(bank => {
         if (bank.id === t.bankId) {
           const amount = t.type === 'INCOME' ? -t.amount : t.amount;
-          return { ...bank, currentBalance: bank.currentBalance + amount };
+          const updatedBal = bank.currentBalance + amount;
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          return { ...bank, currentBalance: updatedBal };
         }
         return bank;
       }));
@@ -550,10 +758,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (t.type === 'EXPENSE' && t.creditCardId) {
       setCreditCards(prev => prev.map(card => {
         if (card.id === t.creditCardId) {
+          const updatedUsed = card.usedLimit - t.amount;
+          const updatedAvail = card.availableLimit + t.amount;
+          supabase.from('credit_cards').update({
+            used_limit: updatedUsed,
+            available_limit: updatedAvail
+          }).eq('id', card.id).then();
           return {
             ...card,
-            usedLimit: card.usedLimit - t.amount,
-            availableLimit: card.availableLimit + t.amount
+            usedLimit: updatedUsed,
+            availableLimit: updatedAvail
           };
         }
         return card;
@@ -561,11 +775,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setTransactions(prev => prev.filter(tx => tx.id !== id));
+    await supabase.from('transactions').delete().eq('id', id);
   };
 
-  const addCategory = (cat: Omit<Category, 'id' | 'isActive'>) => {
+  const addCategory = async (cat: Omit<Category, 'id' | 'isActive'>) => {
+    if (!currentUser) return '';
     const id = uuidv4();
-    const newCat: Category = {
+    const newCat = {
       ...cat,
       id,
       isActive: true,
@@ -573,95 +789,190 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       icon: cat.icon || (cat.type === 'INCOME' ? 'plus-circle' : 'minus-circle')
     };
     setCategories(prev => [...prev, newCat]);
+
+    await supabase.from('categories').insert({
+      id,
+      user_id: currentUser.id,
+      name: cat.name,
+      type: cat.type,
+      color: newCat.color,
+      icon: newCat.icon,
+      monthly_goal: cat.monthlyGoal,
+      is_active: true
+    });
+
     return id;
   };
 
-  const updateCategory = (id: string, updates: Partial<Category>) => {
+  const updateCategory = async (id: string, updates: Partial<Category>) => {
     setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    await supabase.from('categories').update({
+      name: updates.name,
+      type: updates.type,
+      color: updates.color,
+      icon: updates.icon,
+      monthly_goal: updates.monthlyGoal,
+      is_active: updates.isActive
+    }).eq('id', id);
   };
 
-  const markTransactionAsPaid = (id: string, paymentDate: string) => {
+  const markTransactionAsPaid = async (id: string, paymentDate: string) => {
     setTransactions(prev => prev.map(t => {
       if (t.id === id) {
         const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
         if (!isPaid) {
-          // If was open and now paid, update balance
           setBanks(prevBanks => prevBanks.map(bank => {
             if (bank.id === t.bankId) {
               const amount = t.type === 'INCOME' ? t.amount : -t.amount;
-              return { ...bank, currentBalance: bank.currentBalance + amount };
+              const updatedBal = bank.currentBalance + amount;
+              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+              return { ...bank, currentBalance: updatedBal };
             }
             return bank;
           }));
 
-          // Link to Goal currentAmount if applicable
           if (t.linkedGoalId && t.type === 'EXPENSE') {
              setGoals(prevGoals => prevGoals.map(goal => {
                if (goal.id === t.linkedGoalId) {
-                 return { ...goal, currentAmount: goal.currentAmount + t.amount };
+                 const updatedAmt = goal.currentAmount + t.amount;
+                 supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+                 return { ...goal, currentAmount: updatedAmt };
                }
                return goal;
              }));
           }
         }
-        return { ...t, status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID', paymentDate };
+        
+        const finalStatus = t.type === 'INCOME' ? 'RECEIVED' : 'PAID';
+        supabase.from('transactions').update({
+          status: finalStatus,
+          payment_date: paymentDate
+        }).eq('id', id).then();
+
+        return { ...t, status: finalStatus, paymentDate };
       }
       return t;
     }));
   };
 
-  const addGoal = (goal: Omit<Goal, 'id'>) => {
-    setGoals(prev => [...prev, { ...goal, id: uuidv4() }]);
+  const addGoal = async (goal: Omit<Goal, 'id'>) => {
+    if (!currentUser) return;
+    const id = uuidv4();
+    setGoals(prev => [...prev, { ...goal, id }]);
+
+    await supabase.from('goals').insert({
+      id,
+      user_id: currentUser.id,
+      name: goal.name,
+      target_amount: goal.targetAmount,
+      current_amount: goal.currentAmount,
+      deadline_date: goal.deadlineDate,
+      type: goal.type,
+      category_id: goal.categoryId,
+      bank_id: goal.bankId,
+      color: goal.color,
+      icon: goal.icon
+    });
   };
 
-  const updateGoal = (id: string, updates: Partial<Goal>) => {
+  const updateGoal = async (id: string, updates: Partial<Goal>) => {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+    await supabase.from('goals').update({
+      name: updates.name,
+      target_amount: updates.targetAmount,
+      current_amount: updates.currentAmount,
+      deadline_date: updates.deadlineDate,
+      type: updates.type,
+      category_id: updates.categoryId,
+      bank_id: updates.bankId,
+      color: updates.color,
+      icon: updates.icon
+    }).eq('id', id);
   };
 
-  const deleteGoal = (id: string) => {
+  const deleteGoal = async (id: string) => {
     setGoals(prev => prev.filter(g => g.id !== id));
+    await supabase.from('goals').delete().eq('id', id);
   };
 
-  const addCreditCard = (card: Omit<CreditCard, 'id' | 'availableLimit' | 'usedLimit'>) => {
-    const newCard: CreditCard = {
+  const addCreditCard = async (card: Omit<CreditCard, 'id' | 'availableLimit' | 'usedLimit'>) => {
+    if (!currentUser) return;
+    const id = uuidv4();
+    const newCard = {
       ...card,
-      id: uuidv4(),
+      id,
       usedLimit: 0,
       availableLimit: card.totalLimit
     };
     setCreditCards(prev => [...prev, newCard]);
+
+    await supabase.from('credit_cards').insert({
+      id,
+      user_id: currentUser.id,
+      name: card.name,
+      bank_id: card.bankId,
+      brand: card.brand,
+      last_four: card.lastFour,
+      total_limit: card.totalLimit,
+      used_limit: 0,
+      available_limit: card.totalLimit,
+      closing_day: card.closingDay,
+      due_day: card.dueDay,
+      color: card.color,
+      notes: card.notes
+    });
   };
 
-  const updateCreditCard = (id: string, updates: Partial<CreditCard>) => {
+  const updateCreditCard = async (id: string, updates: Partial<CreditCard>) => {
     setCreditCards(prev => prev.map(c => {
       if (c.id === id) {
         const updated = { ...c, ...updates };
         if (updates.totalLimit !== undefined) {
           updated.availableLimit = updates.totalLimit - updated.usedLimit;
         }
+
+        supabase.from('credit_cards').update({
+          name: updates.name || c.name,
+          bank_id: updates.bankId !== undefined ? updates.bankId : c.bankId,
+          brand: updates.brand || c.brand,
+          last_four: updates.lastFour || c.lastFour,
+          total_limit: updates.totalLimit !== undefined ? updates.totalLimit : c.totalLimit,
+          used_limit: updated.usedLimit,
+          available_limit: updated.availableLimit,
+          closing_day: updates.closingDay !== undefined ? updates.closingDay : c.closingDay,
+          due_day: updates.dueDay !== undefined ? updates.dueDay : c.dueDay,
+          color: updates.color || c.color,
+          notes: updates.notes !== undefined ? updates.notes : c.notes
+        }).eq('id', id).then();
+
         return updated;
       }
       return c;
     }));
   };
 
-  const deleteCreditCard = (id: string) => {
+  const deleteCreditCard = async (id: string) => {
     setCreditCards(prev => prev.filter(c => c.id !== id));
+    await supabase.from('credit_cards').delete().eq('id', id);
   };
 
-  const excludeRecurringMonth = (originalId: string, monthYear: string) => {
+  const excludeRecurringMonth = async (originalId: string, monthYear: string) => {
     setTransactions(prev => prev.map(t => {
       if (t.id === originalId) {
         const exclusions = t.recurringExclusions || [];
         if (!exclusions.includes(monthYear)) {
-          return { ...t, recurringExclusions: [...exclusions, monthYear] };
+          const newExclusions = [...exclusions, monthYear];
+          supabase.from('transactions').update({
+            recurring_exclusions: newExclusions
+          }).eq('id', originalId).then();
+          return { ...t, recurringExclusions: newExclusions };
         }
       }
       return t;
     }));
   };
 
-  const payAllOverdue = () => {
+  const payAllOverdue = async () => {
     const today = new Date().toISOString();
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -674,81 +985,159 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setTransactions(prev => prev.map(t => {
       if (overdueIds.includes(t.id)) {
-        // Update bank balance
         setBanks(prevBanks => prevBanks.map(bank => {
           if (bank.id === t.bankId) {
             const amount = t.type === 'INCOME' ? t.amount : -t.amount;
-            return { ...bank, currentBalance: bank.currentBalance + amount };
+            const updatedBal = bank.currentBalance + amount;
+            supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+            return { ...bank, currentBalance: updatedBal };
           }
           return bank;
         }));
+
+        supabase.from('transactions').update({
+          status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID',
+          payment_date: today
+        }).eq('id', t.id).then();
+
         return { ...t, status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID', paymentDate: today };
       }
       return t;
     }));
   };
 
-  const addReminder = (r: Omit<Reminder, 'id' | 'isCompleted' | 'createdAt'>) => {
-    const newReminder: Reminder = {
-      ...r,
-      id: uuidv4(),
-      isCompleted: false,
-      createdAt: new Date().toISOString()
-    };
-    setReminders(prev => [...prev, newReminder]);
+  const addReminder = async (r: Omit<Reminder, 'id' | 'isCompleted' | 'createdAt'>) => {
+    if (!currentUser) return;
+    const id = uuidv4();
+    const createdAt = new Date().toISOString();
+    setReminders(prev => [...prev, { ...r, id, isCompleted: false, createdAt }]);
+
+    await supabase.from('reminders').insert({
+      id,
+      user_id: currentUser.id,
+      title: r.title,
+      description: r.description,
+      due_date: r.dueDate,
+      is_completed: false,
+      transaction_id: r.transactionId,
+      method: r.method,
+      whatsapp_sent: false,
+      created_at: createdAt
+    });
   };
 
-  const updateReminder = (id: string, r: Partial<Reminder>) => {
+  const updateReminder = async (id: string, r: Partial<Reminder>) => {
     setReminders(prev => prev.map(item => item.id === id ? { ...item, ...r } : item));
+    await supabase.from('reminders').update({
+      title: r.title,
+      description: r.description,
+      due_date: r.dueDate,
+      is_completed: r.isCompleted,
+      transaction_id: r.transactionId,
+      method: r.method,
+      whatsapp_sent: r.whatsappSent
+    }).eq('id', id);
   };
 
-  const deleteReminder = (id: string) => {
+  const deleteReminder = async (id: string) => {
     setReminders(prev => prev.filter(r => r.id !== id));
+    await supabase.from('reminders').delete().eq('id', id);
   };
 
-  const completeReminder = (id: string) => {
+  const completeReminder = async (id: string) => {
     setReminders(prev => prev.map(r => r.id === id ? { ...r, isCompleted: true } : r));
+    await supabase.from('reminders').update({ is_completed: true }).eq('id', id);
   };
 
-  // User auth actions
-  const registerUser = (userData: Omit<User, 'id'>): boolean => {
-    const exists = users.some(u => u.username.toLowerCase() === userData.username.toLowerCase());
-    if (exists) {
+  // User Auth Actions
+  const registerUser = async (userData: Omit<User, 'id'>): Promise<boolean> => {
+    try {
+      const email = userData.username.includes('@')
+        ? userData.username
+        : `${userData.username.toLowerCase().trim()}@noblefinance.com`;
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: userData.password || '123',
+        options: {
+          data: {
+            name: userData.name
+          }
+        }
+      });
+
+      if (error) {
+        console.error("Supabase Auth SignUp error:", error);
+        return false;
+      }
+
+      const supabaseUser = data.user;
+      if (!supabaseUser) return false;
+
+      // Insert profile details
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: supabaseUser.id,
+        username: userData.username.trim(),
+        name: userData.name.trim(),
+        phone: userData.phone,
+        avatar: userData.avatar || '👑'
+      });
+
+      if (profileError) {
+        console.error("Error creating public profile:", profileError);
+      }
+
+      // Pre-seed tables
+      await seedDefaultDataForUser(supabaseUser.id);
+      return true;
+    } catch (e) {
+      console.error("Error in registerUser action:", e);
       return false;
     }
-    const newUser: User = {
-      ...userData,
-      id: uuidv4()
-    };
-    setUsers(prev => [...prev, newUser]);
-    // Pre-create database records with initial templates so dashboard is alive
-    localStorage.setItem(`noble_user_banks_${newUser.id}`, JSON.stringify(mockBanks));
-    localStorage.setItem(`noble_user_creditCards_${newUser.id}`, JSON.stringify(mockCards));
-    localStorage.setItem(`noble_user_categories_${newUser.id}`, JSON.stringify(mockCategories));
-    localStorage.setItem(`noble_user_transactions_${newUser.id}`, JSON.stringify(mockTransactions));
-    localStorage.setItem(`noble_user_goals_${newUser.id}`, JSON.stringify([]));
-    localStorage.setItem(`noble_user_reminders_${newUser.id}`, JSON.stringify([]));
-    return true;
   };
 
-  const loginUser = (username: string, password?: string): boolean => {
-    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
-    if (user && user.password === password) {
-      setCurrentUser(user);
-      return true;
+  const loginUser = async (username: string, password?: string): Promise<boolean> => {
+    try {
+      const email = username.includes('@')
+        ? username
+        : `${username.toLowerCase().trim()}@noblefinance.com`;
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: password || '123'
+      });
+
+      if (error) {
+        console.error("Supabase Auth SignIn error:", error);
+        return false;
+      }
+
+      if (data.user) {
+        await fetchProfileAndSetUser(data.user);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Error in loginUser action:", e);
+      return false;
     }
-    return false;
   };
 
-  const logoutUser = () => {
+  const logoutUser = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
   };
 
-  const updateUserProfile = (updates: Partial<User>) => {
+  const updateUserProfile = async (updates: Partial<User>) => {
     if (!currentUser) return;
     const updatedUser = { ...currentUser, ...updates };
     setCurrentUser(updatedUser);
-    setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, ...updates } : u));
+
+    await supabase.from('profiles').update({
+      name: updates.name,
+      phone: updates.phone,
+      avatar: updates.avatar
+    }).eq('id', currentUser.id);
   };
 
   return (
@@ -757,7 +1146,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleTheme, addBank, addTransaction, updateTransaction, deleteTransaction, addCategory, updateCategory, markTransactionAsPaid,
       addGoal, updateGoal, deleteGoal, addCreditCard, updateCreditCard, deleteCreditCard, excludeRecurringMonth, payAllOverdue,
       addReminder, updateReminder, deleteReminder, completeReminder, reminders,
-      users, currentUser, registerUser, loginUser, logoutUser, updateUserProfile
+      currentUser, registerUser, loginUser, logoutUser, updateUserProfile
     }}>
       {children}
     </AppContext.Provider>

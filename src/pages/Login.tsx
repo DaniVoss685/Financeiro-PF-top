@@ -100,7 +100,7 @@ export default function LoginPage() {
     setCustomAvatar(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     resetMessages();
 
@@ -120,11 +120,11 @@ export default function LoginPage() {
       }
 
       setLoading(true);
-      setTimeout(() => {
+      try {
         const finalAvatar = customAvatar || avatar;
         const finalPhone = phone.replace(/\D/g, ''); // standard digits
         
-        const successReg = registerUser({
+        const successReg = await registerUser({
           username: username.trim(),
           password: password,
           name: name.trim(),
@@ -132,25 +132,30 @@ export default function LoginPage() {
           avatar: finalAvatar
         });
 
-        setLoading(false);
         if (successReg) {
           setSuccess('Conta criada com sucesso! Faça login abaixo para navegar.');
           setActiveTab('login');
-          // Auto-fill username
           setPassword('');
         } else {
-          setError('Este nome de usuário já existe no sistema.');
+          setError('Este nome de usuário já existe no sistema ou ocorreu um erro no cadastro.');
         }
-      }, 800);
+      } catch (err: any) {
+        setError(err.message || 'Erro ao processar o cadastro.');
+      } finally {
+        setLoading(false);
+      }
     } else {
       setLoading(true);
-      setTimeout(() => {
-        const successLog = loginUser(username.trim(), password);
-        setLoading(false);
+      try {
+        const successLog = await loginUser(username.trim(), password);
         if (!successLog) {
           setError('Usuário ou senha inválidos.');
         }
-      }, 600);
+      } catch (err: any) {
+        setError(err.message || 'Erro ao processar o login.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
