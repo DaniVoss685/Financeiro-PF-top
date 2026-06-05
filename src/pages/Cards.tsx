@@ -12,6 +12,9 @@ export default function CardsPage() {
   const { creditCards, transactions, categories, banks, addCreditCard, updateCreditCard, deleteCreditCard, addTransaction, deleteTransaction } = useAppContext();
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
+  const [deletingCardName, setDeletingCardName] = useState('');
 
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | null>(null);
 
@@ -73,9 +76,8 @@ export default function CardsPage() {
   };
 
   const handleDeleteCard = (id: string, name: string) => {
-    if (confirm(`Deseja realmente excluir o cartão "${name}"?`)) {
-      deleteCreditCard(id);
-    }
+    setDeletingCardId(id);
+    setDeletingCardName(name);
   };
 
   const handleSaveCard = (e: React.FormEvent) => {
@@ -86,6 +88,7 @@ export default function CardsPage() {
       addCreditCard(formData);
     }
     setActiveModal(null);
+    setShowSuccessModal(true);
   };
 
   // Filter transactions for a specific credit card
@@ -700,6 +703,69 @@ export default function CardsPage() {
              </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={!!deletingCardId}
+        onClose={() => {
+          setDeletingCardId(null);
+          setDeletingCardName('');
+        }}
+        title="Confirmar Exclusão"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+            Tem certeza que deseja excluir o cartão de crédito <strong className="text-primary">"{deletingCardName}"</strong>? <br/>
+            As transações associadas a este cartão não serão excluídas, mas ficarão sem cartão de crédito associado. Esta ação não pode ser desfeita.
+          </p>
+          <div className="flex gap-3">
+            <button 
+              onClick={() => {
+                setDeletingCardId(null);
+                setDeletingCardName('');
+              }}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={() => {
+                if (deletingCardId) {
+                  deleteCreditCard(deletingCardId);
+                  setDeletingCardId(null);
+                  setDeletingCardName('');
+                }
+              }}
+              className="flex-1 bg-rose-500 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-600 transition-all uppercase tracking-widest cursor-pointer"
+            >
+              Excluir
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Sucesso"
+      >
+        <div className="flex flex-col items-center justify-center py-6 text-center space-y-4">
+          <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center border border-primary/30">
+            <CheckCircle2 className="w-8 h-8 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-foreground">Pronto!</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              Seu cartão de crédito foi salvo com sucesso e já está disponível para compras.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSuccessModal(false)}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 rounded-xl font-bold transition-all mt-4"
+          >
+            Entendido
+          </button>
+        </div>
       </Modal>
     </div>
   );

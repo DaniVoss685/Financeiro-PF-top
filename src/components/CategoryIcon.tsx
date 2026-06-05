@@ -18,7 +18,10 @@ import {
   Smartphone,
   Gift,
   DollarSign,
-  Plus
+  Plus,
+  HandCoins,
+  PlusCircle,
+  MinusCircle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -37,6 +40,10 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   smartphone: Smartphone,
   gift: Gift,
   dollar: DollarSign,
+  'hand-coins': HandCoins || DollarSign,
+  'plus-circle': PlusCircle || Plus,
+  'minus-circle': MinusCircle || HelpCircle,
+  'help-circle': HelpCircle,
 };
 
 interface CategoryIconProps {

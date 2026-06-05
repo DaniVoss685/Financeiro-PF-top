@@ -87,6 +87,7 @@ function DropdownPortal({ children, triggerRef, isOpen, onClose }: { children: R
           top: coords.top, 
           left: coords.left, 
           width: coords.width,
+          minWidth: Math.max(coords.width, 240),
           zIndex: 100000,
           transform: coords.placement === 'top' ? 'translateY(-100%)' : 'none'
         }}
@@ -124,6 +125,21 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const selectedOption = options.find(o => o.value === value);
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        if (activeRef.current) {
+          activeRef.current.scrollIntoView({
+            behavior: 'auto',
+            block: 'center'
+          });
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   return (
     <div className={cn("space-y-1.5 relative", className)} ref={containerRef}>
@@ -138,11 +154,11 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
           !selectedOption && "text-muted-foreground"
         )}
       >
-        <div className="flex items-center gap-2.5 truncate">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
           {selectedOption?.color && (
             <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-[0_0_8px_rgba(0,0,0,0.5)] border border-foreground/10" style={{ backgroundColor: selectedOption.color }} />
           )}
-          <span className={cn("truncate font-medium", selectedOption ? "text-foreground/90" : "text-muted-foreground")}>
+          <span className={cn("whitespace-normal break-all leading-tight py-0.5 font-medium flex-1 text-left text-xs", selectedOption ? "text-foreground/90" : "text-muted-foreground")}>
             {selectedOption ? selectedOption.label : placeholder}
           </span>
         </div>
@@ -166,6 +182,7 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
                   </div>
                 ) : options.map((option) => (
                   <button
+                    ref={value === option.value ? activeRef : undefined}
                     key={option.value}
                     type="button"
                     onClick={() => {
@@ -179,17 +196,17 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
                         : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                     )}
                   >
-                    <div className="flex items-center gap-3 truncate">
+                    <div className="flex items-center gap-3 flex-1 min-w-0 py-0.5">
                       {option.color && (
                         <div 
                           className={cn(
-                            "w-2 h-2 rounded-full border",
+                            "w-2 h-2 rounded-full border shrink-0",
                             value === option.value ? "border-black/20" : "border-foreground/10"
                           )} 
                           style={{ backgroundColor: option.color }} 
                         />
                       )}
-                      <span className="truncate">{option.label}</span>
+                      <span className="whitespace-normal break-all text-left flex-1 text-xs leading-tight">{option.label}</span>
                     </div>
                     {value === option.value && <Check className="w-3.5 h-3.5 shrink-0" />}
                   </button>

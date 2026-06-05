@@ -26,7 +26,8 @@ export default function CategoriesPage() {
     type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     color: '#BCF24B',
     icon: 'utensils',
-    monthlyGoal: ''
+    monthlyGoal: '',
+    excludeFromAnalysis: false
   });
 
   const filteredCategories = categories.filter(c => 
@@ -42,7 +43,8 @@ export default function CategoriesPage() {
         type: newCategory.type as 'INCOME' | 'EXPENSE' | 'BOTH',
         color: newCategory.color,
         icon: newCategory.icon,
-        monthlyGoal: newCategory.monthlyGoal ? parseFloat(newCategory.monthlyGoal as string) : undefined
+        monthlyGoal: newCategory.monthlyGoal ? parseFloat(newCategory.monthlyGoal as string) : undefined,
+        excludeFromAnalysis: newCategory.excludeFromAnalysis
       });
     } else {
       addCategory({
@@ -50,7 +52,8 @@ export default function CategoriesPage() {
         type: newCategory.type as 'INCOME' | 'EXPENSE' | 'BOTH',
         color: newCategory.color,
         icon: newCategory.icon,
-        monthlyGoal: newCategory.monthlyGoal ? parseFloat(newCategory.monthlyGoal as string) : undefined
+        monthlyGoal: newCategory.monthlyGoal ? parseFloat(newCategory.monthlyGoal as string) : undefined,
+        excludeFromAnalysis: newCategory.excludeFromAnalysis
       });
     }
     
@@ -62,7 +65,8 @@ export default function CategoriesPage() {
       type: 'EXPENSE',
       color: '#BCF24B',
       icon: 'utensils',
-      monthlyGoal: ''
+      monthlyGoal: '',
+      excludeFromAnalysis: false
     });
   };
 
@@ -78,7 +82,7 @@ export default function CategoriesPage() {
         <button 
           onClick={() => {
             setEditingCategoryId(null);
-            setNewCategory({ name: '', type: 'EXPENSE', color: '#BCF24B', icon: 'utensils', monthlyGoal: '' });
+            setNewCategory({ name: '', type: 'EXPENSE', color: '#BCF24B', icon: 'utensils', monthlyGoal: '', excludeFromAnalysis: false });
             setIsModalOpen(true);
           }}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-primary/20 transition-all flex items-center gap-2 italic"
@@ -137,7 +141,8 @@ export default function CategoriesPage() {
                       type: cat.type === 'BOTH' ? 'EXPENSE' : cat.type,
                       color: cat.color,
                       icon: cat.icon,
-                      monthlyGoal: cat.monthlyGoal ? cat.monthlyGoal.toString() : ''
+                      monthlyGoal: cat.monthlyGoal ? cat.monthlyGoal.toString() : '',
+                      excludeFromAnalysis: !!cat.excludeFromAnalysis
                     });
                     setIsModalOpen(true);
                   }}
@@ -254,15 +259,23 @@ export default function CategoriesPage() {
                 ))}
               </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-muted-foreground ml-1">Teto Mensal (Opcional)</label>
-              <input 
-                type="number" 
-                placeholder="R$ 0,00" 
-                value={newCategory.monthlyGoal}
-                onChange={(e) => setNewCategory({...newCategory, monthlyGoal: e.target.value})}
-                className="w-full bg-muted/20 border border-border/50 rounded-2xl py-3 px-4 text-sm focus:outline-none focus:border-primary/50 transition-all text-foreground"
-              />
+            
+            <div className="space-y-2 flex flex-col justify-end">
+              <div 
+                className="flex items-center gap-2.5 p-3 bg-muted/20 border border-border/50 rounded-2xl hover:bg-muted/30 transition-all cursor-pointer select-none" 
+                onClick={() => setNewCategory({...newCategory, excludeFromAnalysis: !newCategory.excludeFromAnalysis})}
+              >
+                <input 
+                  type="checkbox"
+                  checked={newCategory.excludeFromAnalysis}
+                  onChange={() => {}} // Controlled by div click
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary bg-card"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-foreground leading-tight">Ignorar na Análise</span>
+                  <span className="text-[8px] text-muted-foreground leading-tight">Exclui lançamentos desta categoria</span>
+                </div>
+              </div>
             </div>
           </div>
 

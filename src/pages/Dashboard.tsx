@@ -35,7 +35,7 @@ import { Link } from 'react-router-dom';
 import { Modal } from '../components/ui/Modal';
 import { useAppContext } from '../store/AppContext';
 import { CategoryIcon } from '../components/CategoryIcon';
-import { format, addMonths } from 'date-fns';
+import { format, addMonths, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
@@ -72,6 +72,7 @@ export default function DashboardPage() {
       addTransaction({
         ...t,
         id: undefined,
+        isRecurring: false,
         paymentDate: new Date().toISOString(),
         status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID',
       });
@@ -83,6 +84,43 @@ export default function DashboardPage() {
       });
     }
   };
+
+  const handleEditClick = (t: any) => {
+    setEditingTransaction(t);
+    setNewTx({
+      description: t.description,
+      amount: t.amount,
+      type: t.type,
+      categoryId: t.categoryId,
+      newCategoryName: '',
+      bankId: t.bankId || '',
+      creditCardId: t.creditCardId || '',
+      dueDate: t.dueDate ? format(parseISO(t.dueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      paymentDate: t.paymentDate ? format(parseISO(t.paymentDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      isPaid: t.status === 'PAID' || t.status === 'RECEIVED',
+      isRecurring: t.isRecurring || false,
+      isInstallment: t.isInstallment || false,
+      installmentCount: t.installmentTotal?.toString() || '1',
+      installmentStart: t.installmentCurrent?.toString() || '1',
+      linkedGoalId: t.linkedGoalId || ''
+    });
+
+    if (t.type === 'INCOME') {
+      setActiveModal('new_transaction_income');
+    } else {
+      setActiveModal('new_transaction_expense');
+    }
+  };
+
+  const handleSort = (field: 'description' | 'category' | 'dueDate' | 'paymentDate' | 'amount' | 'competenceDate') => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
 
   const handleDelete = () => {
     if (deletingTransaction) {
@@ -106,6 +144,7 @@ export default function DashboardPage() {
     setActiveModal(null);
     setCashFlowDetailMonth(null);
     setBankDetailInfo(null);
+    setEditingTransaction(null);
   };
 
   // Filters State
@@ -124,6 +163,9 @@ export default function DashboardPage() {
   const [dateFieldToFilter, setDateFieldToFilter] = useState<'competenceDate' | 'dueDate' | 'paymentDate'>('competenceDate');
 
   const [createdTransactionInfo, setCreatedTransactionInfo] = useState<any>(null);
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [sortField, setSortField] = useState<'description' | 'category' | 'dueDate' | 'paymentDate' | 'amount' | 'competenceDate'>('competenceDate');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // New Transaction State
   const [newTx, setNewTx] = useState({
@@ -141,7 +183,8 @@ export default function DashboardPage() {
     isRecurring: false,
     isInstallment: false,
     installmentCount: '1',
-    installmentStart: '0'
+    installmentStart: '0',
+    linkedGoalId: ''
   });
 
   const [newReminder, setNewReminder] = useState({
@@ -176,8 +219,17 @@ export default function DashboardPage() {
     }
   };
 
+  const isTxFormValid = 
+    newTx.description.trim() !== '' &&
+    newTx.amount > 0 &&
+    newTx.categoryId !== '' &&
+    (newTx.categoryId !== 'NEW' || newTx.newCategoryName.trim() !== '') &&
+    (activeModal === 'new_transaction_income' 
+      ? newTx.bankId !== '' 
+      : (newTx.bankId !== '' || newTx.creditCardId !== ''));
+
   const handleAddTx = (type: 'INCOME' | 'EXPENSE') => {
-    if (!newTx.description || !newTx.amount) return;
+    if (!isTxFormValid) return;
     
     let finalCategoryId = newTx.categoryId;
     
@@ -194,69 +246,138 @@ export default function DashboardPage() {
       finalCategoryId = defaultCat?.id || (categories[0]?.id || '');
     }
 
-    const baseTx = {
+    const txData = {
       description: newTx.description,
       amount: Number(newTx.amount),
       type: type,
       categoryId: finalCategoryId,
       bankId: newTx.bankId || undefined,
       creditCardId: newTx.creditCardId || undefined,
+      dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
+      paymentDate: newTx.isPaid ? new Date(newTx.paymentDate + 'T12:00:00').toISOString() : undefined,
       status: newTx.isPaid ? (type === 'INCOME' ? 'RECEIVED' : 'PAID') : 'OPEN' as any,
       isRecurring: newTx.isRecurring,
       isPartial: newTx.isPartial,
+      linkedGoalId: newTx.linkedGoalId || undefined
     };
 
-    let createdId = '';
-    if (newTx.isInstallment && Number(newTx.installmentCount) > 1) {
-      const count = Number(newTx.installmentCount);
-      const paid = Number(newTx.installmentStart) || 0;
-      const start = paid + 1;
-      // Use the provided dates as base for installments
-      const baseDueDate = new Date(newTx.dueDate + 'T12:00:00');
-      const basePaymentDate = new Date(newTx.paymentDate + 'T12:00:00');
-
-      let offset = 0;
-      for (let j = start; j <= count; j++) {
-        const installmentDueDate = addMonths(baseDueDate, offset);
-        const installmentPaymentDate = addMonths(basePaymentDate, offset);
+    if (editingTransaction) {
+      const isVirtual = editingTransaction.id.toString().startsWith('recurring-') || editingTransaction.id.toString().startsWith('projected-');
+      if (isVirtual) {
+        const parentId = editingTransaction.id.toString().split('-')[1];
+        const monthYearKey = format(parseISO(editingTransaction.competenceDate), 'yyyy-MM');
         
-        const id = addTransaction({
-          ...baseTx,
-          competenceDate: installmentDueDate.toISOString(), // Set competence to due date of each installment
-          dueDate: installmentDueDate.toISOString(),
-          paymentDate: (offset === 0 && newTx.isPaid) ? installmentPaymentDate.toISOString() : undefined,
-          status: (offset === 0 && newTx.isPaid) ? baseTx.status : 'OPEN',
-          isInstallment: true,
-          installmentTotal: count,
-          installmentCurrent: j,
-          description: `${baseTx.description} (${j}/${count})`
+        addTransaction({
+          ...txData,
+          competenceDate: editingTransaction.competenceDate,
+          isRecurring: false
         });
-        if (offset === 0) createdId = id;
-        offset++;
+        excludeRecurringMonth(parentId, monthYearKey);
+      } else {
+        if (editingTransaction.isRecurring) {
+          addTransaction({
+            ...txData,
+            competenceDate: editingTransaction.competenceDate,
+            isRecurring: false
+          });
+          
+          // Buscar o primeiro mês futuro vago a partir do mês seguinte à competência da recorrência
+          let nextMonth = addMonths(new Date(editingTransaction.competenceDate), 1);
+          let isMonthOccupied = true;
+          while (isMonthOccupied) {
+            const m = nextMonth.getMonth();
+            const y = nextMonth.getFullYear();
+            
+            const hasInstance = transactions.some(t => {
+              if (t.id.toString().startsWith('recurring-')) return false;
+              const tDate = new Date(t.competenceDate);
+              return t.description === editingTransaction.description &&
+                     t.categoryId === editingTransaction.categoryId &&
+                     tDate.getMonth() === m &&
+                     tDate.getFullYear() === y &&
+                     t.id !== editingTransaction.id;
+            });
+            
+            if (hasInstance) {
+              nextMonth = addMonths(nextMonth, 1);
+            } else {
+              isMonthOccupied = false;
+            }
+          }
+
+          updateTransaction(editingTransaction.id, {
+            competenceDate: nextMonth.toISOString(),
+            dueDate: new Date(nextMonth.getFullYear(), nextMonth.getMonth(), new Date(editingTransaction.dueDate).getDate()).toISOString()
+          });
+        } else {
+          updateTransaction(editingTransaction.id, {
+            ...txData,
+            competenceDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
+          });
+        }
       }
-    } else {
-      createdId = addTransaction({
-        ...baseTx,
-        competenceDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
-        dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
-        paymentDate: newTx.isPaid ? new Date(newTx.paymentDate + 'T12:00:00').toISOString() : undefined,
-        isInstallment: false
+      
+      setCreatedTransactionInfo({
+        ...txData,
+        id: editingTransaction.id,
+        dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
       });
-    }
-    
-    setCreatedTransactionInfo({ 
-      ...baseTx, 
-      id: createdId,
-      dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
-    });
 
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
-    const dueStr = newTx.dueDate;
-
-    if (type === 'EXPENSE' && dueStr === todayStr && !newTx.isPaid) {
-      setActiveModal('due_today_prompt');
-    } else {
       setActiveModal('success_created');
+      setEditingTransaction(null);
+    } else {
+      let createdId = '';
+      if (newTx.isInstallment && Number(newTx.installmentCount) > 1) {
+        const count = Number(newTx.installmentCount);
+        const paid = Number(newTx.installmentStart) || 0;
+        const start = paid + 1;
+        // Use the provided dates as base for installments
+        const baseDueDate = new Date(newTx.dueDate + 'T12:00:00');
+        const basePaymentDate = new Date(newTx.paymentDate + 'T12:00:00');
+
+        let offset = 0;
+        for (let j = start; j <= count; j++) {
+          const installmentDueDate = addMonths(baseDueDate, offset);
+          const installmentPaymentDate = addMonths(basePaymentDate, offset);
+          
+          const id = addTransaction({
+            ...txData,
+            competenceDate: installmentDueDate.toISOString(), // Set competence to due date of each installment
+            dueDate: installmentDueDate.toISOString(),
+            paymentDate: (offset === 0 && newTx.isPaid) ? installmentPaymentDate.toISOString() : undefined,
+            status: (offset === 0 && newTx.isPaid) ? txData.status : 'OPEN',
+            isInstallment: true,
+            installmentTotal: count,
+            installmentCurrent: j,
+            description: `${txData.description} (${j}/${count})`
+          });
+          if (offset === 0) createdId = id;
+          offset++;
+        }
+      } else {
+        createdId = addTransaction({
+          ...txData,
+          competenceDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
+          dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
+          paymentDate: newTx.isPaid ? new Date(newTx.paymentDate + 'T12:00:00').toISOString() : undefined,
+          isInstallment: false
+        });
+      }
+      
+      setCreatedTransactionInfo({ 
+        ...txData, 
+        id: createdId,
+        dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
+      });
+
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const dueStr = newTx.dueDate;
+
+      if (type === 'EXPENSE' && dueStr === todayStr && !newTx.isPaid) {
+        setActiveModal('due_today_prompt');
+      } else {
+        setActiveModal('success_created');
+      }
     }
 
     setNewTx({ 
@@ -274,7 +395,8 @@ export default function DashboardPage() {
       isRecurring: false,
       isInstallment: false,
       installmentCount: '1',
-      installmentStart: '0'
+      installmentStart: '0',
+      linkedGoalId: ''
     });
   };
 
@@ -323,6 +445,7 @@ export default function DashboardPage() {
               id: `recurring-${rt.id}-${targetYear}-${targetMonthIdx}`,
               competenceDate: projectedDate.toISOString(),
               dueDate: projectedDate.toISOString(),
+              paymentDate: undefined,
               status: 'OPEN' // Projected is always open
             });
           }
@@ -380,7 +503,36 @@ export default function DashboardPage() {
     }
 
     return matchesSearch && matchesType && matchesStatus && matchesCategory && matchesDate;
-  }).sort((a, b) => new Date(b.competenceDate).getTime() - new Date(a.competenceDate).getTime());
+  }).sort((a, b) => {
+    let aVal: any = a[sortField];
+    let bVal: any = b[sortField];
+
+    if (sortField === 'category') {
+      const catA = categories.find(c => c.id === a.categoryId)?.name || '';
+      const catB = categories.find(c => c.id === b.categoryId)?.name || '';
+      aVal = catA;
+      bVal = catB;
+    }
+
+    if (sortField === 'dueDate' || sortField === 'paymentDate' || sortField === 'competenceDate') {
+      aVal = aVal ? new Date(aVal).getTime() : 0;
+      bVal = bVal ? new Date(bVal).getTime() : 0;
+    }
+
+    if (sortField === 'amount') {
+      aVal = a.amount;
+      bVal = b.amount;
+    }
+
+    if (sortField === 'description') {
+      aVal = a.description.toLowerCase();
+      bVal = b.description.toLowerCase();
+    }
+
+    if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
 
   const totalBalance = banks.reduce((acc, bank) => acc + bank.currentBalance, 0);
 
@@ -463,7 +615,9 @@ export default function DashboardPage() {
                 return t.description === rt.description && td.getMonth() === m && td.getFullYear() === selectedYear && t.id !== rt.id;
               });
 
-              if (!alreadyHasReal) {
+              const isSourceMonth = rtStart.getMonth() === m && rtStart.getFullYear() === selectedYear;
+
+              if (!alreadyHasReal && !isSourceMonth) {
                 if (rt.type === 'INCOME') monthIncome += rt.amount;
                 else monthExpense += rt.amount;
                 
@@ -519,7 +673,7 @@ export default function DashboardPage() {
       {/* Modals Section */}
       <Modal isOpen={activeModal === 'new_transaction_income' || activeModal === 'new_transaction_expense'} 
              onClose={closeModal} 
-             title={activeModal === 'new_transaction_income' ? "Nova Receita" : "Nova Despesa"}>
+             title={editingTransaction ? (activeModal === 'new_transaction_income' ? "Editar Receita" : "Editar Despesa") : (activeModal === 'new_transaction_income' ? "Nova Receita" : "Nova Despesa")}>
         <div className="space-y-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Descrição</label>
@@ -566,6 +720,15 @@ export default function DashboardPage() {
               />
             ) : <div />}
           </div>
+
+          {activeModal === 'new_transaction_expense' && (
+            <PremiumSelect 
+              label="Vincular a uma Meta de Reserva"
+              options={[{ value: '', label: 'Não vincular' }, ...goals.filter(g => g.type === 'SAVINGS').map(g => ({ value: g.id, label: g.name, color: g.color }))]}
+              value={newTx.linkedGoalId || ''}
+              onChange={val => setNewTx({...newTx, linkedGoalId: val})}
+            />
+          )}
 
           {newTx.categoryId === 'NEW' && (
             <div className="animate-in fade-in slide-in-from-top-1 duration-200">
@@ -668,20 +831,33 @@ export default function DashboardPage() {
                    const total = Number(newTx.installmentCount) || 1;
                    const paid = Number(newTx.installmentStart) || 0;
                    const remaining = Math.max(0, total - paid);
+
+                   const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                   const dueDateObj = new Date(newTx.dueDate + 'T12:00:00');
+                   const lastInstallmentDate = addMonths(dueDateObj, remaining - 1);
+                   const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
+
                    if (remaining === 0) {
                      return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
                    }
-                   if (paid > 0) {
-                     return (
-                       <span>
-                         Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
-                       </span>
-                     );
-                   }
                    return (
-                     <span>
-                       Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
-                     </span>
+                     <div className="space-y-1">
+                       <div>
+                         {paid > 0 ? (
+                           <span>
+                             Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
+                           </span>
+                         ) : (
+                           <span>
+                             Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
+                           </span>
+                         )}
+                       </div>
+                       <div className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
+                         <span>📅 A última parcela ({total}ª) vencerá em</span>
+                         <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
+                       </div>
+                     </div>
                    );
                  })()}
               </div>
@@ -690,13 +866,18 @@ export default function DashboardPage() {
 
           <button 
             type="button" 
+            disabled={!isTxFormValid}
             onClick={() => handleAddTx(activeModal === 'new_transaction_income' ? 'INCOME' : 'EXPENSE')}
             className={cn(
-              "w-full text-primary-foreground font-semibold py-4 rounded-xl mt-4 hover:shadow-lg transition-all active:scale-95 text-sm",
-              activeModal === 'new_transaction_income' ? "bg-primary" : "bg-red-500 text-foreground"
+              "w-full text-primary-foreground font-semibold py-4 rounded-xl mt-4 transition-all active:scale-95 text-sm uppercase tracking-wider font-bold cursor-pointer",
+              !isTxFormValid
+                ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed border border-border"
+                : (activeModal === 'new_transaction_income' 
+                    ? "bg-primary hover:shadow-lg hover:shadow-primary/20 hover:scale-[1.01]" 
+                    : "bg-red-500 text-white hover:shadow-lg hover:shadow-red-500/20 hover:scale-[1.01]")
             )}
           >
-            {activeModal === 'new_transaction_income' ? "Adicionar Receita" : "Adicionar Despesa"}
+            {editingTransaction ? "Salvar Alterações" : (activeModal === 'new_transaction_income' ? "Adicionar Receita" : "Adicionar Despesa")}
           </button>
         </div>
       </Modal>
@@ -1469,12 +1650,37 @@ export default function DashboardPage() {
               </div>
 
               {/* Table Header */}
-              <div className="grid grid-cols-12 gap-4 text-xs text-muted-foreground pb-4 border-b border-border font-medium px-2">
-                <div className="col-span-5 sm:col-span-3">Descrição</div>
-                <div className="col-span-2 hidden sm:block">Categoria</div>
-                <div className="col-span-2 hidden md:block">Vencimento</div>
-                <div className="col-span-2 hidden md:block">Pagamento</div>
-                <div className="col-span-4 sm:col-span-4 md:col-span-2 text-right">Valor</div>
+              <div className="grid grid-cols-12 gap-4 text-xs text-muted-foreground pb-4 border-b border-border font-medium px-2 select-none">
+                <div 
+                  onClick={() => handleSort('description')} 
+                  className="col-span-5 sm:col-span-3 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+                >
+                  Descrição {sortField === 'description' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </div>
+                <div 
+                  onClick={() => handleSort('category')} 
+                  className="col-span-2 hidden sm:flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+                >
+                  Categoria {sortField === 'category' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </div>
+                <div 
+                  onClick={() => handleSort('dueDate')} 
+                  className="col-span-2 hidden md:flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+                >
+                  Vencimento {sortField === 'dueDate' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </div>
+                <div 
+                  onClick={() => handleSort('paymentDate')} 
+                  className="col-span-2 hidden md:flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
+                >
+                  Pagamento {sortField === 'paymentDate' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </div>
+                <div 
+                  onClick={() => handleSort('amount')} 
+                  className="col-span-4 sm:col-span-4 md:col-span-2 flex items-center justify-end gap-1 cursor-pointer hover:text-primary transition-colors text-right"
+                >
+                  {sortField === 'amount' && (sortOrder === 'asc' ? '↑ ' : '↓ ')} Valor
+                </div>
                 <div className="col-span-3 sm:col-span-3 md:col-span-1 text-right">Ações</div>
               </div>
 
@@ -1556,12 +1762,6 @@ export default function DashboardPage() {
                         </span>
                         
                         <div className="flex flex-col items-end gap-1 mt-0.5">
-                          {tx.isInstallment && (
-                            <span className="text-[10px] bg-muted/50 px-1.5 py-0.5 rounded border border-border">
-                              {tx.installmentCurrent}/{tx.installmentTotal}
-                            </span>
-                          )}
-                          
                           {!isPaid ? (
                             <button
                               onClick={(e) => {
@@ -1607,12 +1807,13 @@ export default function DashboardPage() {
 
                       {/* Ações */}
                       <div className="col-span-3 sm:col-span-3 md:col-span-1 flex items-center justify-end gap-1 shrink-0">
-                        <Link 
-                          to="/transactions" 
-                          className="p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary rounded-lg transition-all"
+                        <button 
+                          onClick={() => handleEditClick(tx)}
+                          className="p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary rounded-lg transition-all cursor-pointer"
+                          title="Editar transação"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
-                        </Link>
+                        </button>
                         <button 
                           onClick={() => {
                             setDeletingTransaction(tx);
@@ -1707,7 +1908,7 @@ export default function DashboardPage() {
                         .filter(t => t.categoryId === 'cat-reimb' && t.type === 'INCOME' && (t.status === 'OPEN' || t.status === 'OVERDUE'))
                         .slice(0, 3)
                         .map(t => (
-                          <div key={t.id} className="flex justify-between items-center p-2 bg-black/20 rounded-xl border border-foreground/5">
+                          <div key={t.id} className="flex justify-between items-center p-2 bg-muted/40 rounded-xl border border-border/50">
                             <span className="text-[10px] text-foreground/80 font-medium truncate max-w-[150px]">{t.description.replace('Reembolso: ', '')}</span>
                             <span className="text-[10px] text-primary font-black">{formatCurrency(t.amount)}</span>
                           </div>

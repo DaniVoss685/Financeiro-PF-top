@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../lib/supabaseClient';
+import { format } from 'date-fns';
 
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'CREDIT_CARD';
 export type TransactionStatus = 'OPEN' | 'PAID' | 'RECEIVED' | 'OVERDUE';
@@ -14,6 +15,7 @@ export interface Bank {
   color: string;
   notes?: string;
   icon?: string;
+  excludeFromAnalysis?: boolean;
 }
 
 export interface CreditCard {
@@ -39,6 +41,7 @@ export interface Category {
   icon: string;
   monthlyGoal?: number;
   isActive: boolean;
+  excludeFromAnalysis?: boolean;
 }
 
 export interface Transaction {
@@ -98,6 +101,15 @@ export interface User {
   avatar?: string;
 }
 
+export interface RecurringHistory {
+  id: string;
+  userId: string;
+  transactionId: string;
+  amount: number;
+  effectiveFrom: string; // "YYYY-MM"
+  createdAt: string;
+}
+
 interface AppState {
   theme: 'dark' | 'light';
   banks: Bank[];
@@ -105,9 +117,12 @@ interface AppState {
   categories: Category[];
   transactions: Transaction[];
   goals: Goal[];
+  recurringHistory: RecurringHistory[];
   toggleTheme: () => void;
   // Actions
   addBank: (bank: Omit<Bank, 'id'>) => Promise<void>;
+  updateBank: (id: string, bank: Partial<Bank>) => Promise<void>;
+  deleteBank: (id: string) => Promise<void>;
   addTransaction: (transaction: Omit<Transaction, 'id'>) => string;
   updateTransaction: (id: string, transaction: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
@@ -126,6 +141,8 @@ interface AppState {
   updateReminder: (id: string, reminder: Partial<Reminder>) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
   completeReminder: (id: string) => Promise<void>;
+  addRecurringHistoryEntry: (transactionId: string, amount: number, effectiveFrom: string) => Promise<void>;
+  cloneRecurringHistory: (oldTxId: string, newTxId: string) => Promise<void>;
   reminders: Reminder[];
   notifications: Notification[];
 
@@ -174,7 +191,7 @@ const mockTransactions: Transaction[] = [
 const AppContext = createContext<AppState | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // States per user
@@ -184,6 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [recurringHistory, setRecurringHistory] = useState<RecurringHistory[]>([]);
 
   // Track state loading
   const [isLoaded, setIsLoaded] = useState(false);
@@ -198,11 +216,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await fetchProfileAndSetUser(session.user);
-      } else {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Ignorar eventos SIGN_IN pois loginUser já faz o fetch para evitar race conditions
+      if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
+      } else if (event === 'INITIAL_SESSION' && session?.user) {
+        fetchProfileAndSetUser(session.user);
       }
     });
 
@@ -238,9 +257,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Seed default data for first-time users
   const seedDefaultDataForUser = async (uId: string) => {
     try {
+      // Previne duplicação causada pelo StrictMode do React rodando o useEffect duas vezes
+      const { data: existingBanks } = await supabase.from('banks').select('id').eq('user_id', uId).limit(1);
+      if (existingBanks && existingBanks.length > 0) return;
+
+      // Cria mapas de IDs originais para novos UUIDs válidos e compatíveis com UUID do Postgres
+      const bankIdMap: Record<string, string> = {
+        'bank-1': uuidv4(),
+        'bank-2': uuidv4()
+      };
+      const cardIdMap: Record<string, string> = {
+        'cc-1': uuidv4(),
+        'cc-2': uuidv4()
+      };
+
       // 1. Seed Banks
       const dbBanks = mockBanks.map(b => ({
-        id: b.id,
+        id: bankIdMap[b.id] || uuidv4(),
         user_id: uId,
         name: b.name,
         type: b.type,
@@ -253,10 +286,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // 2. Seed Credit Cards
       const dbCards = mockCards.map(c => ({
-        id: c.id,
+        id: cardIdMap[c.id] || uuidv4(),
         user_id: uId,
         name: c.name,
-        bank_id: c.bankId,
+        bank_id: bankIdMap[c.bankId] || null,
         brand: c.brand,
         last_four: c.lastFour,
         total_limit: c.totalLimit,
@@ -268,30 +301,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       await supabase.from('credit_cards').insert(dbCards);
 
-      // 3. Seed Transactions
-      const dbTransactions = mockTransactions.map(t => ({
+      // 3. Seed Transactions — category_id deve ser null pois as categorias são locais (IDs 'cat-1' não existem no banco)
+      const dbTransactions = mockTransactions.map(t => {
+        const transId = uuidv4();
+        return {
+          id: transId,
+          user_id: uId,
+          type: t.type,
+          description: t.description,
+          amount: t.amount,
+          category_id: null, // Categorias são gerenciadas localmente, não via FK no banco
+          bank_id: t.bankId ? (bankIdMap[t.bankId] || null) : null,
+          credit_card_id: t.creditCardId ? (cardIdMap[t.creditCardId] || null) : null,
+          competence_date: t.competenceDate,
+          due_date: t.dueDate,
+          payment_date: t.paymentDate || null,
+          status: t.status,
+          is_recurring: t.isRecurring,
+          is_installment: t.isInstallment,
+          created_at: new Date().toISOString()
+        };
+      });
+      const { error: txError } = await supabase.from('transactions').insert(dbTransactions);
+      if (txError) console.error('Seed transactions error:', txError);
+
+      // Instantly populates local states with the new UUIDs
+      setBanks(mockBanks.map(b => ({
+        ...b,
+        id: bankIdMap[b.id] || b.id
+      })));
+      setCreditCards(mockCards.map(c => ({
+        ...c,
+        id: cardIdMap[c.id] || c.id,
+        bankId: bankIdMap[c.bankId] || c.bankId
+      })));
+      setCategories(mockCategories);
+      setTransactions(dbTransactions.map(t => ({
         id: t.id,
-        user_id: uId,
-        type: t.type,
+        type: t.type as TransactionType,
         description: t.description,
         amount: t.amount,
-        category_id: t.categoryId,
-        bank_id: t.bankId,
-        competence_date: t.competenceDate,
-        due_date: t.dueDate,
-        payment_date: t.paymentDate,
-        status: t.status,
-        is_recurring: t.isRecurring,
-        is_installment: t.isInstallment,
-        created_at: new Date().toISOString()
-      }));
-      await supabase.from('transactions').insert(dbTransactions);
-
-      // Instantly populates local states
-      setBanks(mockBanks);
-      setCreditCards(mockCards);
-      setCategories(mockCategories);
-      setTransactions(mockTransactions);
+        categoryId: t.category_id,
+        bankId: t.bank_id || undefined,
+        creditCardId: t.credit_card_id || undefined,
+        competenceDate: t.competence_date,
+        dueDate: t.due_date,
+        paymentDate: t.payment_date || undefined,
+        status: t.status as TransactionStatus,
+        isRecurring: t.is_recurring,
+        isInstallment: t.is_installment,
+        createdAt: t.created_at
+      })));
       setGoals([]);
       setReminders([]);
     } catch (err) {
@@ -313,17 +373,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             { data: dbCategories },
             { data: dbTransactions },
             { data: dbGoals },
-            { data: dbReminders }
+            { data: dbReminders },
+            { data: dbUserSettings },
+            { data: dbRecurringHistory }
           ] = await Promise.all([
             supabase.from('banks').select('*').eq('user_id', uId),
             supabase.from('credit_cards').select('*').eq('user_id', uId),
             supabase.from('categories').select('*'), // RLS handles categories selection automatically
             supabase.from('transactions').select('*').eq('user_id', uId),
             supabase.from('goals').select('*').eq('user_id', uId),
-            supabase.from('reminders').select('*').eq('user_id', uId)
+            supabase.from('reminders').select('*').eq('user_id', uId),
+            supabase.from('user_settings').select('*').eq('user_id', uId),
+            supabase.from('recurring_history').select('*').eq('user_id', uId)
           ]);
 
-          if (!dbBanks || dbBanks.length === 0) {
+          const { data: { user } } = await supabase.auth.getUser();
+          const email = user?.email || '';
+
+          if ((!dbBanks || dbBanks.length === 0) && email === 'noble@noblefinance.com') {
             // First time user, seed!
             await seedDefaultDataForUser(uId);
           } else {
@@ -335,7 +402,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               currentBalance: Number(b.current_balance),
               color: b.color,
               notes: b.notes,
-              icon: b.icon
+              icon: b.icon,
+              excludeFromAnalysis: !!b.exclude_from_analysis
             })));
 
             setCreditCards((dbCards || []).map(c => ({
@@ -353,20 +421,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               notes: c.notes
             })));
 
-            // Merge local mocks with DB categories to ensure defaults are always available
-            const mergedCategories = [...mockCategories];
-            (dbCategories || []).forEach(dbc => {
-              if (!mergedCategories.some(mc => mc.id === dbc.id)) {
-                mergedCategories.push({
-                  id: dbc.id,
-                  name: dbc.name,
-                  type: dbc.type,
-                  color: dbc.color,
-                  icon: dbc.icon,
-                  monthlyGoal: dbc.monthly_goal ? Number(dbc.monthly_goal) : undefined,
-                  isActive: dbc.is_active
-                });
+            // Obter as customizações das categorias padrão com parsing robusto (caso venha como string JSON do banco)
+            const userSettingsRow = dbUserSettings && dbUserSettings.length > 0 ? dbUserSettings[0] : null;
+            let settingsObj = userSettingsRow?.settings || {};
+            if (typeof settingsObj === 'string') {
+              try {
+                settingsObj = JSON.parse(settingsObj);
+              } catch (e) {
+                console.error("Error parsing settings JSON string in loadUserData:", e);
+                settingsObj = {};
               }
+            }
+            const customizations = settingsObj?.category_customizations || {};
+
+            // Merge local mocks with DB categories to ensure defaults are always available, prioritizing DB values and applying customizations
+            const dbCatIds = new Set((dbCategories || []).map(dbc => dbc.id));
+            const mergedCategories = mockCategories
+              .filter(mc => !dbCatIds.has(mc.id))
+              .map(mc => {
+                const custom = customizations[mc.id];
+                if (custom) {
+                  return {
+                    ...mc,
+                    name: custom.name !== undefined ? custom.name : mc.name,
+                    color: custom.color !== undefined ? custom.color : mc.color,
+                    icon: custom.icon !== undefined ? custom.icon : mc.icon,
+                    monthlyGoal: custom.monthlyGoal !== undefined ? custom.monthlyGoal : mc.monthlyGoal,
+                    isActive: custom.isActive !== undefined ? custom.isActive : mc.isActive,
+                    excludeFromAnalysis: custom.excludeFromAnalysis !== undefined ? custom.excludeFromAnalysis : false
+                  };
+                }
+                return { ...mc };
+              });
+
+            (dbCategories || []).forEach(dbc => {
+              const custom = customizations[dbc.id];
+              mergedCategories.push({
+                id: dbc.id,
+                name: custom?.name !== undefined ? custom.name : dbc.name,
+                type: dbc.type,
+                color: custom?.color !== undefined ? custom.color : dbc.color,
+                icon: custom?.icon !== undefined ? custom.icon : dbc.icon,
+                monthlyGoal: dbc.monthly_goal ? Number(dbc.monthly_goal) : (custom?.monthlyGoal !== undefined ? custom.monthlyGoal : undefined),
+                isActive: custom?.isActive !== undefined ? custom.isActive : dbc.is_active,
+                excludeFromAnalysis: custom?.excludeFromAnalysis !== undefined ? custom.excludeFromAnalysis : !!dbc.exclude_from_analysis
+              });
             });
             setCategories(mergedCategories);
 
@@ -417,11 +516,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               method: r.method,
               whatsappSent: r.whatsapp_sent
             })));
+
+            setRecurringHistory((dbRecurringHistory || []).map(rh => ({
+              id: rh.id,
+              userId: rh.user_id,
+              transactionId: rh.transaction_id,
+              amount: Number(rh.amount),
+              effectiveFrom: rh.effective_from,
+              createdAt: rh.created_at
+            })));
           }
 
-          setIsLoaded(true);
         } catch (e) {
           console.error("Error loading user state from Supabase:", e);
+          // Carregar categorias locais para que o app não trave mesmo se o banco falhar
+          setCategories(mockCategories);
+        } finally {
+          // SEMPRE libera o loading, evitando travamento na tela de login
+          setIsLoaded(true);
         }
       };
 
@@ -433,6 +545,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTransactions([]);
       setGoals([]);
       setReminders([]);
+      setRecurringHistory([]);
       setIsLoaded(false);
     }
   }, [currentUser]);
@@ -517,8 +630,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       current_balance: bank.currentBalance,
       color: bank.color,
       notes: bank.notes,
-      icon: bank.icon
+      icon: bank.icon,
+      exclude_from_analysis: bank.excludeFromAnalysis || false
     });
+  };
+
+  const updateBank = async (id: string, updates: Partial<Bank>) => {
+    setBanks(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+
+    const dbUpdates: any = {
+      name: updates.name,
+      type: updates.type,
+      initial_balance: updates.initialBalance,
+      current_balance: updates.currentBalance,
+      color: updates.color,
+      notes: updates.notes,
+      icon: updates.icon
+    };
+    if (updates.excludeFromAnalysis !== undefined) {
+      dbUpdates.exclude_from_analysis = updates.excludeFromAnalysis;
+    }
+
+    await supabase.from('banks').update(dbUpdates).eq('id', id);
+  };
+
+  const deleteBank = async (id: string) => {
+    setBanks(prev => prev.filter(b => b.id !== id));
+    setTransactions(prev => prev.map(t => {
+      if (t.bankId === id) {
+        return { ...t, bankId: undefined };
+      }
+      return t;
+    }));
+    await supabase.from('transactions').update({ bank_id: null }).eq('bank_id', id);
+
+    setGoals(prev => prev.map(g => {
+      if (g.bankId === id) {
+        return { ...g, bankId: undefined };
+      }
+      return g;
+    }));
+    await supabase.from('goals').update({ bank_id: null }).eq('bank_id', id);
+
+    await supabase.from('banks').delete().eq('id', id);
   };
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
@@ -624,7 +778,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       installment_current: t.installmentCurrent,
       recurring_exclusions: t.recurringExclusions || [],
       linked_goal_id: t.linkedGoalId
-    }).then();
+    }).then(async () => {
+      if (t.isRecurring) {
+        addRecurringHistoryEntry(newId, t.amount, t.competenceDate.substring(0, 7));
+      }
+
+      // Criar lembrete automático inteligente de WhatsApp se for vencimento futuro (amanhã em diante)
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      if ((t.type === 'EXPENSE' || t.type === 'INCOME') && t.status === 'OPEN' && t.dueDate > todayStr) {
+        const reminderTitle = `${t.type === 'EXPENSE' ? 'Pagamento' : 'Recebimento'}: ${t.description}`;
+        const reminderDesc = `Lembrete automático para o vencimento de ${t.description}`;
+        const newReminderId = uuidv4();
+        const newReminder = {
+          id: newReminderId,
+          transactionId: newId,
+          title: reminderTitle,
+          description: reminderDesc,
+          dueDate: t.dueDate,
+          method: 'WHATSAPP' as const,
+          isCompleted: false,
+          whatsappSent: false,
+          createdAt: new Date().toISOString()
+        };
+
+        setReminders(prev => [...prev, newReminder]);
+
+        await supabase.from('reminders').insert({
+          id: newReminderId,
+          user_id: currentUser.id,
+          transaction_id: newId,
+          title: reminderTitle,
+          description: reminderDesc,
+          due_date: t.dueDate,
+          method: 'WHATSAPP',
+          is_completed: false,
+          whatsapp_sent: false,
+          created_at: newReminder.createdAt
+        });
+      }
+    });
 
     return newId;
   };
@@ -710,6 +902,124 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }));
         }
 
+        // Reconciliação inteligente com metas na atualização da transação
+        const oldGoalId = t.linkedGoalId;
+        const newGoalId = updates.linkedGoalId !== undefined ? updates.linkedGoalId : oldGoalId;
+        const oldAmount = t.amount;
+        const newAmount = updates.amount !== undefined ? updates.amount : oldAmount;
+        const isExpense = (updates.type || t.type) === 'EXPENSE';
+
+        if (isExpense) {
+          if (!oldPaid && newPaid) {
+            if (newGoalId) {
+              setGoals(prev => prev.map(g => {
+                if (g.id === newGoalId) {
+                  const updatedAmt = g.currentAmount + newAmount;
+                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                  return { ...g, currentAmount: updatedAmt };
+                }
+                return g;
+              }));
+            }
+          } else if (oldPaid && !newPaid) {
+            if (oldGoalId) {
+              setGoals(prev => prev.map(g => {
+                if (g.id === oldGoalId) {
+                  const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
+                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                  return { ...g, currentAmount: updatedAmt };
+                }
+                return g;
+              }));
+            }
+          } else if (oldPaid && newPaid) {
+            if (oldGoalId !== newGoalId) {
+              if (oldGoalId) {
+                setGoals(prev => prev.map(g => {
+                  if (g.id === oldGoalId) {
+                    const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
+                    supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                    return { ...g, currentAmount: updatedAmt };
+                  }
+                  return g;
+                }));
+              }
+              if (newGoalId) {
+                setGoals(prev => prev.map(g => {
+                  if (g.id === newGoalId) {
+                    const updatedAmt = g.currentAmount + newAmount;
+                    supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                    return { ...g, currentAmount: updatedAmt };
+                  }
+                  return g;
+                }));
+              }
+            } else if (newGoalId && oldAmount !== newAmount) {
+              setGoals(prev => prev.map(g => {
+                if (g.id === newGoalId) {
+                  const updatedAmt = Math.max(0, g.currentAmount - oldAmount + newAmount);
+                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                  return { ...g, currentAmount: updatedAmt };
+                }
+                return g;
+              }));
+            }
+          }
+        }
+
+        // Histórico de valores da recorrência se houver alteração
+        const isRec = updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring;
+        if (isRec && updates.amount !== undefined && updates.amount !== t.amount) {
+          addRecurringHistoryEntry(id, updates.amount, (updates.competenceDate || t.competenceDate).substring(0, 7));
+        }
+
+        // Atualização e conclusão de lembretes vinculados
+        if (!oldPaid && newPaid) {
+          const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
+          if (related) {
+            completeReminder(related.id);
+          }
+        }
+
+        if (updates.dueDate && updates.dueDate !== t.dueDate) {
+          const related = reminders.find(r => r.transactionId === id);
+          if (related) {
+            updateReminder(related.id, { dueDate: updates.dueDate });
+          } else {
+            const todayStr = format(new Date(), 'yyyy-MM-dd');
+            const finalStatus = updates.status || t.status;
+            if (finalStatus === 'OPEN' && updates.dueDate > todayStr) {
+              const reminderTitle = `${(updates.type || t.type) === 'EXPENSE' ? 'Pagamento' : 'Recebimento'}: ${updates.description || t.description}`;
+              const reminderDesc = `Lembrete automático para o vencimento de ${updates.description || t.description}`;
+              const newReminderId = uuidv4();
+              const newReminder = {
+                id: newReminderId,
+                transactionId: id,
+                title: reminderTitle,
+                description: reminderDesc,
+                dueDate: updates.dueDate,
+                method: 'WHATSAPP' as const,
+                isCompleted: false,
+                whatsappSent: false,
+                createdAt: new Date().toISOString()
+              };
+              setReminders(prev => [...prev, newReminder]);
+              supabase.from('reminders').insert({
+                id: newReminderId,
+                user_id: currentUser.id,
+                transaction_id: id,
+                title: reminderTitle,
+                description: reminderDesc,
+                due_date: updates.dueDate,
+                method: 'WHATSAPP',
+                is_completed: false,
+                whatsapp_sent: false,
+                created_at: newReminder.createdAt
+              }).then();
+            }
+          }
+        }
+
         // Save actual updates to Supabase
         supabase.from('transactions').update({
           type: updates.type || t.type,
@@ -752,6 +1062,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         return bank;
       }));
+
+      // Reverter impacto na meta se for despesa vinculada
+      if (t.linkedGoalId && t.type === 'EXPENSE') {
+        setGoals(prevGoals => prevGoals.map(goal => {
+          if (goal.id === t.linkedGoalId) {
+            const updatedAmt = Math.max(0, goal.currentAmount - t.amount);
+            supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+            return { ...goal, currentAmount: updatedAmt };
+          }
+          return goal;
+        }));
+      }
     }
 
     // Update credit card limit if it was an expense
@@ -773,6 +1095,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return card;
       }));
     }
+
+    // Deletar lembretes associados
+    setReminders(prev => prev.filter(r => r.transactionId !== id));
+    await supabase.from('reminders').delete().eq('transaction_id', id);
 
     setTransactions(prev => prev.filter(tx => tx.id !== id));
     await supabase.from('transactions').delete().eq('id', id);
@@ -798,22 +1124,74 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       color: newCat.color,
       icon: newCat.icon,
       monthly_goal: cat.monthlyGoal,
-      is_active: true
+      is_active: true,
+      exclude_from_analysis: cat.excludeFromAnalysis || false
     });
 
     return id;
   };
 
   const updateCategory = async (id: string, updates: Partial<Category>) => {
+    if (!currentUser) return;
     setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-    await supabase.from('categories').update({
-      name: updates.name,
-      type: updates.type,
-      color: updates.color,
-      icon: updates.icon,
-      monthly_goal: updates.monthlyGoal,
-      is_active: updates.isActive
-    }).eq('id', id);
+    
+    // Obter dados atuais da categoria para servir de fallback no upsert
+    const currentCat = categories.find(c => c.id === id);
+    const name = updates.name !== undefined ? updates.name : (currentCat?.name || '');
+    const type = updates.type !== undefined ? updates.type : (currentCat?.type || 'EXPENSE');
+    const color = updates.color !== undefined ? updates.color : (currentCat?.color || '#BCF24B');
+    const icon = updates.icon !== undefined ? updates.icon : (currentCat?.icon || 'utensils');
+    const monthlyGoal = updates.monthlyGoal !== undefined ? updates.monthlyGoal : currentCat?.monthlyGoal;
+    const isActive = updates.isActive !== undefined ? updates.isActive : (currentCat?.isActive ?? true);
+    const excludeFromAnalysis = updates.excludeFromAnalysis !== undefined ? updates.excludeFromAnalysis : currentCat?.excludeFromAnalysis;
+
+    // Verificar se é uma categoria padrão
+    const isMock = mockCategories.some(mc => mc.id === id);
+    if (isMock) {
+      // Buscar configurações atuais do usuário na tabela user_settings
+      const { data: dbSettings } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', currentUser.id);
+
+      const userSettingsRow = dbSettings && dbSettings.length > 0 ? dbSettings[0] : null;
+      let settingsObj = userSettingsRow?.settings || {};
+      if (typeof settingsObj === 'string') {
+        try {
+          settingsObj = JSON.parse(settingsObj);
+        } catch (e) {
+          console.error("Error parsing settings JSON string in updateCategory:", e);
+          settingsObj = {};
+        }
+      }
+      const customCats = settingsObj?.category_customizations || {};
+      
+      customCats[id] = { name, color, icon, monthlyGoal, isActive, excludeFromAnalysis };
+      
+      const newSettings = {
+        ...settingsObj,
+        category_customizations: customCats
+      };
+
+      await supabase.from('user_settings').upsert({
+        user_id: currentUser.id,
+        settings: newSettings,
+        updated_at: new Date().toISOString()
+      });
+    } else {
+      // Categoria customizada criada pelo usuário
+      await supabase.from('categories').upsert({
+        id,
+        user_id: currentUser.id,
+        name,
+        type,
+        color,
+        icon,
+        monthly_goal: monthlyGoal,
+        is_active: isActive,
+        exclude_from_analysis: excludeFromAnalysis
+      });
+    }
   };
 
   const markTransactionAsPaid = async (id: string, paymentDate: string) => {
@@ -848,6 +1226,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           status: finalStatus,
           payment_date: paymentDate
         }).eq('id', id).then();
+
+        // Concluir lembretes vinculados
+        const relatedReminder = reminders.find(r => r.transactionId === id && !r.isCompleted);
+        if (relatedReminder) {
+          completeReminder(relatedReminder.id);
+        }
 
         return { ...t, status: finalStatus, paymentDate };
       }
@@ -1049,6 +1433,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await supabase.from('reminders').update({ is_completed: true }).eq('id', id);
   };
 
+  const addRecurringHistoryEntry = async (transactionId: string, amount: number, effectiveFrom: string) => {
+    if (!currentUser) return;
+    const newId = uuidv4();
+    const now = new Date().toISOString();
+
+    setRecurringHistory(prev => [...prev, {
+      id: newId,
+      userId: currentUser.id,
+      transactionId,
+      amount,
+      effectiveFrom,
+      createdAt: now
+    }]);
+
+    await supabase.from('recurring_history').insert({
+      id: newId,
+      user_id: currentUser.id,
+      transaction_id: transactionId,
+      amount,
+      effective_from: effectiveFrom,
+      created_at: now
+    });
+  };
+
+  const cloneRecurringHistory = async (oldTxId: string, newTxId: string) => {
+    if (!currentUser) return;
+    const oldHistory = recurringHistory.filter(h => h.transactionId === oldTxId);
+    if (oldHistory.length === 0) return;
+
+    const now = new Date().toISOString();
+    const newEntries = oldHistory.map(h => ({
+      id: uuidv4(),
+      user_id: currentUser.id,
+      transaction_id: newTxId,
+      amount: h.amount,
+      effective_from: h.effectiveFrom,
+      created_at: now
+    }));
+
+    setRecurringHistory(prev => [
+      ...prev,
+      ...newEntries.map(e => ({
+        id: e.id,
+        userId: e.user_id,
+        transactionId: e.transaction_id,
+        amount: e.amount,
+        effectiveFrom: e.effective_from,
+        createdAt: e.created_at
+      }))
+    ]);
+
+    await supabase.from('recurring_history').insert(newEntries);
+  };
+
   // User Auth Actions
   const registerUser = async (userData: Omit<User, 'id'>): Promise<boolean> => {
     try {
@@ -1075,7 +1513,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!supabaseUser) return false;
 
       // Insert profile details
-      const { error: profileError } = await supabase.from('profiles').insert({
+      const { error: profileError } = await supabase.from('profiles').upsert({
         id: supabaseUser.id,
         username: userData.username.trim(),
         name: userData.name.trim(),
@@ -1087,8 +1525,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error("Error creating public profile:", profileError);
       }
 
-      // Pre-seed tables
-      await seedDefaultDataForUser(supabaseUser.id);
+      // Pre-seed tables apenas para o usuário padrão de testes "noble@noblefinance.com"
+      if (email === 'noble@noblefinance.com') {
+        await seedDefaultDataForUser(supabaseUser.id);
+      }
       return true;
     } catch (e) {
       console.error("Error in registerUser action:", e);
@@ -1142,10 +1582,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      theme, banks, creditCards, categories, transactions, goals, notifications,
-      toggleTheme, addBank, addTransaction, updateTransaction, deleteTransaction, addCategory, updateCategory, markTransactionAsPaid,
+      theme, banks, creditCards, categories, transactions, goals, notifications, recurringHistory,
+      toggleTheme, addBank, updateBank, deleteBank, addTransaction, updateTransaction, deleteTransaction, addCategory, updateCategory, markTransactionAsPaid,
       addGoal, updateGoal, deleteGoal, addCreditCard, updateCreditCard, deleteCreditCard, excludeRecurringMonth, payAllOverdue,
       addReminder, updateReminder, deleteReminder, completeReminder, reminders,
+      addRecurringHistoryEntry, cloneRecurringHistory,
       currentUser, registerUser, loginUser, logoutUser, updateUserProfile
     }}>
       {children}

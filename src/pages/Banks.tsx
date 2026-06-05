@@ -2,33 +2,72 @@ import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { formatCurrency, cn } from '../lib/utils';
-import { Plus, Landmark, ArrowRight, Activity, X } from 'lucide-react';
+import { Plus, Landmark, ArrowRight, Activity, X, Edit2, Trash2, CheckCircle2 } from 'lucide-react';
 import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 
 export default function BanksPage() {
-  const { banks, transactions, addBank } = useAppContext();
+  const { banks, transactions, addBank, updateBank, deleteBank } = useAppContext();
   const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [editingBank, setEditingBank] = useState<any>(null);
+  const [deletingBank, setDeletingBank] = useState<any>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     type: 'CHECKING' as any,
     initialBalance: 0,
-    color: '#BCF24B'
+    color: '#BCF24B',
+    excludeFromAnalysis: false
   });
 
   const handleSaveBank = (e: React.FormEvent) => {
     e.preventDefault();
-    addBank({
-      ...formData,
-      currentBalance: formData.initialBalance
-    });
+    if (editingBank) {
+      updateBank(editingBank.id, {
+        ...formData,
+        currentBalance: editingBank.currentBalance - editingBank.initialBalance + formData.initialBalance
+      });
+    } else {
+      addBank({
+        ...formData,
+        currentBalance: formData.initialBalance
+      });
+    }
     setActiveModal(null);
+    setEditingBank(null);
     setFormData({
       name: '',
       type: 'CHECKING',
       initialBalance: 0,
-      color: '#BCF24B'
+      color: '#BCF24B',
+      excludeFromAnalysis: false
     });
+    setShowSuccessModal(true);
+  };
+
+  const handleEditBankClick = (bank: any) => {
+    setEditingBank(bank);
+    setFormData({
+      name: bank.name,
+      type: bank.type,
+      initialBalance: bank.initialBalance,
+      color: bank.color,
+      excludeFromAnalysis: !!bank.excludeFromAnalysis
+    });
+    setActiveModal('bank_form');
+  };
+
+  const handleDeleteBankClick = (bank: any) => {
+    setDeletingBank(bank);
+    setActiveModal('confirm_delete');
+  };
+
+  const handleDeleteBank = async () => {
+    if (deletingBank) {
+      await deleteBank(deletingBank.id);
+      setActiveModal(null);
+      setDeletingBank(null);
+    }
   };
 
   const totalBalance = banks.reduce((acc, bank) => acc + bank.currentBalance, 0);
@@ -76,17 +115,45 @@ export default function BanksPage() {
             const thisMonthOut = bankTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, t) => acc + t.amount, 0);
 
             return (
-              <PremiumCard key={bank.id} className="p-0 overflow-hidden flex flex-col hover:border-primary/50 transition-colors group cursor-pointer">
-                <div className="p-6 border-b border-border flex items-center gap-4 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:transform group-hover:scale-110 transition-transform">
-                    <Landmark className="w-24 h-24" />
+              <PremiumCard key={bank.id} className="p-0 overflow-hidden flex flex-col hover:border-primary/50 transition-colors group">
+                <div className="p-6 border-b border-border flex items-center justify-between gap-4 relative overflow-hidden">
+                  <div className="flex items-center gap-4">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:transform group-hover:scale-110 transition-transform">
+                      <Landmark className="w-24 h-24" />
+                    </div>
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center text-foreground font-semibold text-xl relative z-10 shadow-lg" style={{ backgroundColor: bank.color }}>
+                      {bank.name.charAt(0)}
+                    </div>
+                    <div className="relative z-10">
+                      <h3 className="font-semibold text-lg">{bank.name}</h3>
+                      <p className="text-sm text-muted-foreground capitalize">{bank.type.toLowerCase()}</p>
+                    </div>
                   </div>
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-foreground font-semibold text-xl relative z-10 shadow-lg" style={{ backgroundColor: bank.color }}>
-                    {bank.name.charAt(0)}
-                  </div>
-                  <div className="relative z-10">
-                    <h3 className="font-semibold text-lg">{bank.name}</h3>
-                    <p className="text-sm text-muted-foreground capitalize">{bank.type.toLowerCase()}</p>
+
+                  {/* Botões de Ação */}
+                  <div className="flex items-center gap-1.5 relative z-20">
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditBankClick(bank);
+                      }}
+                      className="p-1.5 hover:bg-primary/20 hover:text-primary rounded-lg transition-all text-muted-foreground cursor-pointer"
+                      title="Editar Conta"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBankClick(bank);
+                      }}
+                      className="p-1.5 hover:bg-rose-500/20 hover:text-rose-400 rounded-lg transition-all text-muted-foreground cursor-pointer"
+                      title="Excluir Conta"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
                 
@@ -120,8 +187,18 @@ export default function BanksPage() {
 
       <Modal 
         isOpen={activeModal === 'bank_form'} 
-        onClose={() => setActiveModal(null)}
-        title="Adicionar Nova Conta"
+        onClose={() => {
+          setActiveModal(null);
+          setEditingBank(null);
+          setFormData({
+            name: '',
+            type: 'CHECKING',
+            initialBalance: 0,
+            color: '#BCF24B',
+            excludeFromAnalysis: false
+          });
+        }}
+        title={editingBank ? "Editar Conta Bancária" : "Adicionar Nova Conta"}
       >
         <form onSubmit={handleSaveBank} className="space-y-6">
           <div className="space-y-4">
@@ -156,6 +233,22 @@ export default function BanksPage() {
               onChange={val => setFormData({...formData, initialBalance: val})}
             />
 
+            <div 
+              className="flex items-center gap-2.5 p-3 bg-muted/20 border border-border/50 rounded-xl hover:bg-muted/30 transition-all cursor-pointer select-none" 
+              onClick={() => setFormData({...formData, excludeFromAnalysis: !formData.excludeFromAnalysis})}
+            >
+              <input 
+                type="checkbox"
+                checked={formData.excludeFromAnalysis}
+                onChange={() => {}} // Div click handles changes
+                className="w-4 h-4 rounded border-border text-primary focus:ring-primary bg-card"
+              />
+              <div className="flex flex-col">
+                <span className="text-xs font-bold text-foreground">Ignorar na Análise de Categorias</span>
+                <span className="text-[9px] text-muted-foreground">Exclui transações desta conta dos totais e gráficos de progresso da análise</span>
+              </div>
+            </div>
+
             <div>
               <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Cor</label>
               <div className="flex flex-wrap gap-2">
@@ -176,12 +269,86 @@ export default function BanksPage() {
           </div>
 
           <div className="pt-4 flex gap-4">
-             <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground">Cancelar</button>
-             <button type="submit" className="flex-1 bg-primary text-primary-foreground py-4 rounded-2xl text-[10px] font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">
-               Criar Conta
+             <button 
+               type="button" 
+               onClick={() => {
+                 setActiveModal(null);
+                 setEditingBank(null);
+                 setFormData({
+                   name: '',
+                   type: 'CHECKING',
+                   initialBalance: 0,
+                   color: '#BCF24B',
+                   excludeFromAnalysis: false
+                 });
+               }} 
+               className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+             >
+               Cancelar
+             </button>
+             <button type="submit" className="flex-1 bg-primary text-primary-foreground py-4 rounded-2xl text-[10px] font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest cursor-pointer">
+               {editingBank ? "Salvar Alterações" : "Criar Conta"}
              </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal 
+        isOpen={activeModal === 'confirm_delete'} 
+        onClose={() => {
+          setActiveModal(null);
+          setDeletingBank(null);
+        }}
+        title="Confirmar Exclusão"
+      >
+        <div className="space-y-4">
+           <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+             Tem certeza que deseja excluir esta conta bancária? <br/>
+             <strong className="text-primary">"{deletingBank?.name}"</strong> <br/>
+             Isso removerá a conta do sistema. As transações associadas passarão a ficar sem conta associada. Esta ação não pode ser desfeita.
+           </p>
+          <div className="flex gap-3">
+             <button 
+              onClick={() => {
+                setActiveModal(null);
+                setDeletingBank(null);
+              }}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={handleDeleteBank}
+              className="flex-1 bg-rose-500 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-600 transition-all uppercase tracking-widest cursor-pointer"
+            >
+              Excluir
+            </button>
+           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Sucesso"
+      >
+        <div className="flex flex-col items-center justify-center py-6 text-center space-y-4">
+          <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center border border-primary/30">
+            <CheckCircle2 className="w-8 h-8 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-foreground">Pronto!</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              A conta bancária foi salva com sucesso e já está disponível para uso.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSuccessModal(false)}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 rounded-xl font-bold transition-all mt-4"
+          >
+            Entendido
+          </button>
+        </div>
       </Modal>
     </div>
   );

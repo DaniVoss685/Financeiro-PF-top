@@ -11,6 +11,299 @@ import { CategoryIcon } from '../components/CategoryIcon';
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 import TransactionsImporter from '../components/TransactionsImporter';
 
+const TransactionTable = ({ 
+  data, 
+  type, 
+  searchTerm, 
+  onSearchChange, 
+  onFilterClick,
+  isFilterActive,
+  sortField,
+  sortOrder,
+  onSort,
+  categories,
+  banks,
+  reminders,
+  onCreateReminder,
+  onQuickPay,
+  onEdit,
+  onDeleteClick
+}: { 
+  data: Transaction[], 
+  type: 'INCOME' | 'EXPENSE',
+  searchTerm: string,
+  onSearchChange: (val: string) => void,
+  onFilterClick: () => void,
+  isFilterActive: boolean,
+  sortField: string,
+  sortOrder: 'asc' | 'desc',
+  onSort: (field: string) => void,
+  categories: Category[],
+  banks: any[],
+  reminders: any[],
+  onCreateReminder: (t: Transaction) => void,
+  onQuickPay: (t: Transaction) => void,
+  onEdit: (t: Transaction) => void,
+  onDeleteClick: (t: Transaction) => void
+}) => {
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return <div className="w-3" />;
+    return sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
+  };
+
+  const getCategory = (id: string) => categories.find(c => c.id === id);
+  const getBank = (id: string) => banks.find(b => b.id === id);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full text-foreground">
+          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input 
+            type="text" 
+            placeholder={`Buscar em ${type === 'INCOME' ? 'receitas' : 'despesas'}...`} 
+            className="w-full pl-11 pr-4 py-3 bg-muted/20 border border-border/50 rounded-2xl focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-muted-foreground/50 text-sm"
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+        </div>
+        <button 
+          onClick={onFilterClick}
+          className={cn(
+            "flex items-center justify-center gap-2 px-6 py-3 bg-card border rounded-2xl hover:bg-muted transition-all whitespace-nowrap text-xs font-semibold",
+            isFilterActive ? "border-primary text-primary" : "border-border text-muted-foreground"
+          )}
+        >
+          <Filter className="w-4 h-4" /> Filtros Avançados
+        </button>
+      </div>
+
+      <PremiumCard className="overflow-x-auto border border-border/50 bg-card/50">
+        <table className="w-full text-left border-collapse min-w-[800px]">
+          <thead>
+            <tr className="border-b border-border/60 bg-muted/20">
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('description')}
+              >
+                <div className="flex items-center">Descrição <SortIcon field="description" /></div>
+              </th>
+
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('category')}
+              >
+                <div className="flex items-center">Categoria <SortIcon field="category" /></div>
+              </th>
+
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground text-right cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('amount')}
+              >
+                <div className="flex items-center justify-end">Valor <SortIcon field="amount" /></div>
+              </th>
+
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('date')}
+              >
+                <div className="flex items-center">Pagamento <SortIcon field="date" /></div>
+              </th>
+
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('dueDate')}
+              >
+                <div className="flex items-center">Vencimento <SortIcon field="dueDate" /></div>
+              </th>
+              
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('bank')}
+              >
+                <div className="flex items-center">Banco <SortIcon field="bank" /></div>
+              </th>
+              
+              <th 
+                className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => onSort('status')}
+              >
+                <div className="flex items-center">Status <SortIcon field="status" /></div>
+              </th>
+              
+              <th className="p-4 font-semibold text-[10px] text-muted-foreground text-center">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/40">
+            {data.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="p-12 text-center text-muted-foreground italic">
+                  Nenhuma {type === 'INCOME' ? 'receita' : 'despesa'} encontrada.
+                </td>
+              </tr>
+            ) : data.map(t => {
+                const cat = getCategory(t.categoryId);
+                const bank = getBank(t.bankId);
+                const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
+
+                return (
+                  <tr key={t.id} className="hover:bg-primary/5 transition-colors group">
+                    <td className="p-4">
+                      <div className="flex flex-col">
+                        <p className="font-bold text-base text-foreground/90 leading-tight">{t.description}</p>
+                        {t.isInstallment && t.installmentTotal && t.installmentCurrent && (
+                          <span className="text-[10px] text-muted-foreground/80 font-semibold tracking-tight mt-1 animate-in fade-in duration-200">
+                            {(() => {
+                              const remaining = t.installmentTotal - t.installmentCurrent;
+                              if (remaining <= 0) return '✨ Última parcela!';
+                              const currentDueDate = new Date(t.dueDate);
+                              const lastInstallmentDate = addMonths(currentDueDate, remaining);
+                              const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                              return `📅 Última em ${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
+                            })()}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        {cat && <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />}
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-foreground/80">{cat?.name || 'Sem Categoria'}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-right">
+                      <span className={cn(
+                        "font-bold text-sm tracking-tight",
+                        t.type === 'INCOME' ? "text-primary" : "text-foreground/90"
+                      )}>
+                        {t.type === 'INCOME' ? '+' : ''}{formatCurrency(t.amount)}
+                      </span>
+                    </td>
+
+                    <td className="p-4">
+                      <span className="text-sm font-bold text-foreground/80">
+                        {isPaid && t.paymentDate ? format(parseISO(t.paymentDate), "dd/MM/yyyy") : '---'}
+                      </span>
+                    </td>
+
+                    <td className="p-4">
+                      <span className={cn(
+                        "text-sm font-bold",
+                        t.status === 'OVERDUE' ? "text-red-400" : "text-muted-foreground/80"
+                      )}>
+                        {t.dueDate ? format(parseISO(t.dueDate), "dd/MM/yyyy") : '---'}
+                      </span>
+                    </td>
+
+                    <td className="p-4">
+                      {bank ? (
+                        <div className="flex items-center gap-2">
+                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: bank.color }} />
+                           <span className="text-sm text-muted-foreground font-semibold tracking-tight">{bank.name}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40 italic">Não informado</span>
+                      )}
+                    </td>
+
+                    <td className="p-4">
+                      <span className={cn(
+                        "text-[9px] font-semibold px-2 py-1.5 rounded-lg tracking-wider block text-center border",
+                        (t.status === 'PAID' || t.status === 'RECEIVED') ? "bg-success/10 text-success border-success/30" : 
+                        (() => {
+                          const nowAtStartOfToday = new Date();
+                          nowAtStartOfToday.setHours(0,0,0,0);
+                          const due = new Date(t.dueDate);
+                          due.setHours(0,0,0,0);
+                          return (due < nowAtStartOfToday && !t.paymentDate) ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-amber-400/10 text-amber-400 border-amber-400/30";
+                        })()
+                      )}>
+                        {(() => {
+                          if (t.status === 'PAID' || t.status === 'RECEIVED') return t.type === 'INCOME' ? 'Recebido' : 'Pago';
+                          const nowAtStartOfToday = new Date();
+                          nowAtStartOfToday.setHours(0,0,0,0);
+                          const due = new Date(t.dueDate);
+                          due.setHours(0,0,0,0);
+                          return (due < nowAtStartOfToday && !t.paymentDate) ? 'Vencido' : 'Aberto';
+                        })()}
+                      </span>
+                    </td>
+                    
+                    <td className="p-4 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {!isPaid && (
+                          <>
+                            {(() => {
+                              const hasReminder = reminders && reminders.some(r => r.transactionId === t.id && !r.isCompleted);
+                              return (
+                                <button 
+                                  onClick={() => onCreateReminder(t)}
+                                  title={hasReminder ? "Editar Lembrete" : "Criar Lembrete"}
+                                  className={`p-1.5 rounded-lg transition-all ${
+                                    hasReminder 
+                                      ? 'bg-amber-400/20 text-amber-500 hover:bg-amber-400/35' 
+                                      : 'hover:bg-amber-400/20 hover:text-amber-500 text-muted-foreground'
+                                  }`}
+                                >
+                                  <Bell className={`w-4 h-4 ${hasReminder ? 'fill-current' : ''}`} />
+                                </button>
+                              );
+                            })()}
+                            <button 
+                              onClick={() => onQuickPay(t)}
+                              title="Marcar como Pago hoje"
+                              className="p-1.5 bg-success/10 text-success hover:bg-success/20 rounded-lg transition-all"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          onClick={() => onEdit(t)}
+                          className="p-1.5 hover:bg-primary/20 hover:text-primary rounded-lg transition-all text-muted-foreground"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => onDeleteClick(t)}
+                          className="p-1.5 hover:bg-destructive/20 hover:text-destructive rounded-lg transition-all text-muted-foreground"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+          {data.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-border/60 bg-muted/5 font-bold">
+                <td className="p-4 text-xs font-bold text-muted-foreground uppercase" colSpan={2}>
+                  Total de {type === 'INCOME' ? 'Receitas' : 'Despesas'} (Filtrado)
+                </td>
+                <td className="p-4 text-right">
+                  <span className={cn(
+                    "font-black text-sm tracking-tight",
+                    type === 'INCOME' ? "text-primary" : "text-red-500"
+                  )}>
+                    {formatCurrency(data.reduce((acc, t) => acc + t.amount, 0))}
+                  </span>
+                </td>
+                <td colSpan={5} className="p-4" />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </PremiumCard>
+    </div>
+  );
+};
+
 export default function TransactionsPage() {
   const { 
     transactions, 
@@ -169,10 +462,11 @@ export default function TransactionsPage() {
         dueDate: t.dueDate,
         paymentDate: new Date().toISOString(),
         status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID',
-        isRecurring: true,
+        isRecurring: false,
         isInstallment: t.isInstallment,
         installmentTotal: t.installmentTotal,
-        installmentCurrent: t.installmentCurrent
+        installmentCurrent: t.installmentCurrent,
+        linkedGoalId: t.linkedGoalId
       });
 
       excludeRecurringMonth(parentId, monthYearKey);
@@ -251,6 +545,7 @@ export default function TransactionsPage() {
                  id: `recurring-${rt.id}-${y}-${m}`,
                  competenceDate: projectedDate.toISOString(),
                  dueDate: projectedDate.toISOString(),
+                 paymentDate: undefined,
                  status: 'OPEN'
                });
             }
@@ -330,6 +625,9 @@ export default function TransactionsPage() {
   const filteredIncome = filterTransactions('INCOME', searchIncome, statusIncome, categoryIncome, startDateIncome, endDateIncome, sortFieldIncome, sortOrderIncome);
   const filteredExpense = filterTransactions('EXPENSE', searchExpense, statusExpense, categoryExpense, startDateExpense, endDateExpense, sortFieldExpense, sortOrderExpense);
 
+  const totalIncome = filteredIncome.reduce((acc, t) => acc + t.amount, 0);
+  const totalExpense = filteredExpense.reduce((acc, t) => acc + t.amount, 0);
+
   const handleOpenNewTransaction = (type: 'INCOME' | 'EXPENSE' = 'EXPENSE') => {
     setFormData({
       description: '',
@@ -391,8 +689,18 @@ export default function TransactionsPage() {
     }
   };
 
+  const isTxFormValid = 
+    formData.description.trim() !== '' &&
+    formData.amount > 0 &&
+    formData.categoryId !== '' &&
+    (formData.categoryId !== 'NEW' || formData.newCategoryName.trim() !== '') &&
+    (formData.type === 'INCOME' 
+      ? formData.bankId !== '' 
+      : (formData.bankId !== '' || formData.creditCardId !== ''));
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isTxFormValid) return;
     
     let categoryId = formData.categoryId;
     if (formData.categoryId === 'NEW' && formData.newCategoryName) {
@@ -426,7 +734,10 @@ export default function TransactionsPage() {
         const parentId = editingTransaction.id.toString().split('-')[1];
         const monthYearKey = format(parseISO(editingTransaction.competenceDate), 'yyyy-MM');
         
-        addTransaction(txData);
+        addTransaction({
+          ...txData,
+          isRecurring: false
+        });
         excludeRecurringMonth(parentId, monthYearKey);
       } else {
         if (editingTransaction.isRecurring) {
@@ -435,7 +746,30 @@ export default function TransactionsPage() {
             isRecurring: false
           });
           
-          const nextMonth = addMonths(new Date(editingTransaction.competenceDate), 1);
+          // Buscar o primeiro mês futuro vago a partir do mês seguinte à competência da recorrência
+          let nextMonth = addMonths(new Date(editingTransaction.competenceDate), 1);
+          let isMonthOccupied = true;
+          while (isMonthOccupied) {
+            const m = nextMonth.getMonth();
+            const y = nextMonth.getFullYear();
+            
+            const hasInstance = transactions.some(t => {
+              if (t.id.toString().startsWith('recurring-')) return false;
+              const tDate = new Date(t.competenceDate);
+              return t.description === editingTransaction.description &&
+                     t.categoryId === editingTransaction.categoryId &&
+                     tDate.getMonth() === m &&
+                     tDate.getFullYear() === y &&
+                     t.id !== editingTransaction.id;
+            });
+            
+            if (hasInstance) {
+              nextMonth = addMonths(nextMonth, 1);
+            } else {
+              isMonthOccupied = false;
+            }
+          }
+
           updateTransaction(editingTransaction.id, {
             competenceDate: nextMonth.toISOString(),
             dueDate: new Date(nextMonth.getFullYear(), nextMonth.getMonth(), new Date(editingTransaction.dueDate).getDate()).toISOString()
@@ -521,267 +855,6 @@ export default function TransactionsPage() {
     }
   };
 
-  const TransactionTable = ({ 
-    data, 
-    type, 
-    searchTerm, 
-    onSearchChange, 
-    onFilterClick,
-    isFilterActive,
-    sortField,
-    sortOrder,
-    onSort
-  }: { 
-    data: Transaction[], 
-    type: 'INCOME' | 'EXPENSE',
-    searchTerm: string,
-    onSearchChange: (val: string) => void,
-    onFilterClick: () => void,
-    isFilterActive: boolean,
-    sortField: string,
-    sortOrder: 'asc' | 'desc',
-    onSort: (field: string) => void
-  }) => {
-    const SortIcon = ({ field }: { field: string }) => {
-      if (sortField !== field) return <div className="w-3" />;
-      return sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 text-primary" /> : <ArrowDown className="w-3 h-3 ml-1 text-primary" />;
-    };
-
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-          <div className="relative flex-1 w-full text-foreground">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input 
-              type="text" 
-              placeholder={`Buscar em ${type === 'INCOME' ? 'receitas' : 'despesas'}...`} 
-              className="w-full pl-11 pr-4 py-3 bg-muted/20 border border-border/50 rounded-2xl focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-muted-foreground/50 text-sm"
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
-          </div>
-          <button 
-            onClick={onFilterClick}
-            className={cn(
-              "flex items-center justify-center gap-2 px-6 py-3 bg-card border rounded-2xl hover:bg-muted transition-all whitespace-nowrap text-xs font-semibold",
-              isFilterActive ? "border-primary text-primary" : "border-border text-muted-foreground"
-            )}
-          >
-            <Filter className="w-4 h-4" /> Filtros Avançados
-          </button>
-        </div>
-
-        <PremiumCard className="overflow-x-auto border border-border/50 bg-card/50">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="border-b border-border/60 bg-muted/20">
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('description')}
-                >
-                  <div className="flex items-center">Descrição <SortIcon field="description" /></div>
-                </th>
-
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('category')}
-                >
-                  <div className="flex items-center">Categoria <SortIcon field="category" /></div>
-                </th>
-
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground text-right cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('amount')}
-                >
-                  <div className="flex items-center justify-end">Valor <SortIcon field="amount" /></div>
-                </th>
-
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('date')}
-                >
-                  <div className="flex items-center">Pagamento <SortIcon field="date" /></div>
-                </th>
-
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('dueDate')}
-                >
-                  <div className="flex items-center">Vencimento <SortIcon field="dueDate" /></div>
-                </th>
-                
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('bank')}
-                >
-                  <div className="flex items-center">Banco <SortIcon field="bank" /></div>
-                </th>
-                
-                <th 
-                  className="p-4 font-semibold text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => onSort('status')}
-                >
-                  <div className="flex items-center">Status <SortIcon field="status" /></div>
-                </th>
-                
-                <th className="p-4 font-semibold text-[10px] text-muted-foreground text-center">Ações</th>
-              </tr>
-            </thead>
-          <tbody className="divide-y divide-border/40">
-            {data.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="p-12 text-center text-muted-foreground italic">
-                  Nenhuma {type === 'INCOME' ? 'receita' : 'despesa'} encontrada.
-                </td>
-              </tr>
-            ) : data.map(t => {
-                const cat = getCategory(t.categoryId);
-                const bank = getBank(t.bankId);
-                const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
-
-                return (
-                  <tr key={t.id} className="hover:bg-primary/5 transition-colors group">
-                    {/* Descrição */}
-                    <td className="p-4">
-                      <div className="flex flex-col">
-                        <p className="font-bold text-base text-foreground/90">{t.description}</p>
-                        {t.isInstallment && t.installmentTotal && (
-                          <span className="text-[9px] w-fit mt-1 font-semibold bg-muted/40 px-2 py-0.5 rounded border border-border/50 text-muted-foreground tracking-tighter">
-                            Parcela {t.installmentCurrent}/{t.installmentTotal}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Categoria */}
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        {cat && <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />}
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-foreground/80">{cat?.name || 'Sem Categoria'}</span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Valor */}
-                    <td className="p-4 text-right">
-                      <span className={cn(
-                        "font-bold text-sm tracking-tight",
-                        t.type === 'INCOME' ? "text-primary" : "text-foreground/90"
-                      )}>
-                        {t.type === 'INCOME' ? '+' : ''}{formatCurrency(t.amount)}
-                      </span>
-                    </td>
-
-                    {/* Pagamento */}
-                    <td className="p-4">
-                      <span className="text-sm font-bold text-foreground/80">
-                        {isPaid && t.paymentDate ? format(parseISO(t.paymentDate), "dd/MM/yyyy") : '---'}
-                      </span>
-                    </td>
-
-                    {/* Vencimento */}
-                    <td className="p-4">
-                      <span className={cn(
-                        "text-sm font-bold",
-                        t.status === 'OVERDUE' ? "text-red-400" : "text-muted-foreground/80"
-                      )}>
-                        {t.dueDate ? format(parseISO(t.dueDate), "dd/MM/yyyy") : '---'}
-                      </span>
-                    </td>
-
-                    {/* Banco */}
-                    <td className="p-4">
-                      {bank ? (
-                        <div className="flex items-center gap-2">
-                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: bank.color }} />
-                           <span className="text-sm text-muted-foreground font-semibold tracking-tight">{bank.name}</span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/40 italic">Não informado</span>
-                      )}
-                    </td>
-
-                    {/* Status */}
-                    <td className="p-4">
-                      <span className={cn(
-                        "text-[9px] font-semibold px-2 py-1.5 rounded-lg tracking-wider block text-center border",
-                        (t.status === 'PAID' || t.status === 'RECEIVED') ? "bg-success/10 text-success border-success/30" : 
-                        (() => {
-                          const nowAtStartOfToday = new Date();
-                          nowAtStartOfToday.setHours(0,0,0,0);
-                          const due = new Date(t.dueDate);
-                          due.setHours(0,0,0,0);
-                          return (due < nowAtStartOfToday && !t.paymentDate) ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-amber-400/10 text-amber-400 border-amber-400/30";
-                        })()
-                      )}>
-                        {(() => {
-                          if (t.status === 'PAID' || t.status === 'RECEIVED') return t.type === 'INCOME' ? 'Recebido' : 'Pago';
-                          const nowAtStartOfToday = new Date();
-                          nowAtStartOfToday.setHours(0,0,0,0);
-                          const due = new Date(t.dueDate);
-                          due.setHours(0,0,0,0);
-                          return (due < nowAtStartOfToday && !t.paymentDate) ? 'Vencido' : 'Aberto';
-                        })()}
-                      </span>
-                    </td>
-                    
-                    {/* Ações */}
-                    <td className="p-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                         {!isPaid && (
-                           <>
-                             {(() => {
-                               const hasReminder = reminders && reminders.some(r => r.transactionId === t.id && !r.isCompleted);
-                               return (
-                                 <button 
-                                   onClick={() => handleCreateReminderClick(t)}
-                                   title={hasReminder ? "Editar Lembrete" : "Criar Lembrete"}
-                                   className={`p-1.5 rounded-lg transition-all ${
-                                     hasReminder 
-                                       ? 'bg-amber-400/20 text-amber-500 hover:bg-amber-400/35' 
-                                       : 'hover:bg-amber-400/20 hover:text-amber-500 text-muted-foreground'
-                                   }`}
-                                 >
-                                   <Bell className={`w-4 h-4 ${hasReminder ? 'fill-current' : ''}`} />
-                                 </button>
-                               );
-                             })()}
-                             <button 
-                              onClick={() => handleQuickPay(t)}
-                              title="Marcar como Pago hoje"
-                              className="p-1.5 bg-success/10 text-success hover:bg-success/20 rounded-lg transition-all"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                           </>
-                         )}
-                         <button 
-                          onClick={() => handleEditClick(t)}
-                          className="p-1.5 hover:bg-primary/20 hover:text-primary rounded-lg transition-all text-muted-foreground"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setDeletingTransaction(t);
-                            setActiveModal('confirm_delete');
-                          }}
-                          className="p-1.5 hover:bg-destructive/20 hover:text-destructive rounded-lg transition-all text-muted-foreground"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-          </tbody>
-        </table>
-      </PremiumCard>
-    </div>
-  );};
-
   return (
     <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto pb-24 md:pb-10">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -841,9 +914,14 @@ export default function TransactionsPage() {
       </div>
 
       <section className="space-y-6">
-        <div className="flex items-center gap-2 border-l-4 border-primary pl-4">
-          <h2 className="text-xl font-bold text-foreground tracking-widest">Receitas</h2>
-          <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold">{filteredIncome.length}</span>
+        <div className="flex items-center justify-between border-l-4 border-primary pl-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-foreground tracking-widest">Receitas</h2>
+            <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold">{filteredIncome.length}</span>
+          </div>
+          <span className="text-xs font-black px-3 py-1.5 bg-primary/10 text-primary rounded-xl border border-primary/20 shadow-sm">
+            Total: {formatCurrency(totalIncome)}
+          </span>
         </div>
         <TransactionTable 
           type="INCOME"
@@ -858,13 +936,28 @@ export default function TransactionsPage() {
           sortField={sortFieldIncome}
           sortOrder={sortOrderIncome}
           onSort={handleSortIncome}
+          categories={categories}
+          banks={banks}
+          reminders={reminders}
+          onCreateReminder={handleCreateReminderClick}
+          onQuickPay={handleQuickPay}
+          onEdit={handleEditClick}
+          onDeleteClick={(t) => {
+            setDeletingTransaction(t);
+            setActiveModal('confirm_delete');
+          }}
         />
       </section>
 
       <section className="space-y-6">
-        <div className="flex items-center gap-2 border-l-4 border-red-400 pl-4">
-          <h2 className="text-xl font-bold text-foreground tracking-widest">Despesas</h2>
-          <span className="text-[10px] bg-red-400/20 text-red-400 px-2 py-0.5 rounded-full font-bold">{filteredExpense.length}</span>
+        <div className="flex items-center justify-between border-l-4 border-red-400 pl-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-foreground tracking-widest">Despesas</h2>
+            <span className="text-[10px] bg-red-400/20 text-red-400 px-2 py-0.5 rounded-full font-bold">{filteredExpense.length}</span>
+          </div>
+          <span className="text-xs font-black px-3 py-1.5 bg-red-500/10 text-red-500 rounded-xl border border-red-500/20 shadow-sm">
+            Total: {formatCurrency(totalExpense)}
+          </span>
         </div>
         <TransactionTable 
           type="EXPENSE"
@@ -879,6 +972,16 @@ export default function TransactionsPage() {
           sortField={sortFieldExpense}
           sortOrder={sortOrderExpense}
           onSort={handleSortExpense}
+          categories={categories}
+          banks={banks}
+          reminders={reminders}
+          onCreateReminder={handleCreateReminderClick}
+          onQuickPay={handleQuickPay}
+          onEdit={handleEditClick}
+          onDeleteClick={(t) => {
+            setDeletingTransaction(t);
+            setActiveModal('confirm_delete');
+          }}
         />
       </section>
 
@@ -1066,27 +1169,40 @@ export default function TransactionsPage() {
                     </div>
                  </div>
                  <div className="bg-muted/30 border border-border/40 p-3 rounded-xl text-xs text-muted-foreground font-medium">
-                    {(() => {
-                      const total = Number(formData.installmentCount) || 1;
-                      const paid = Number(formData.installmentStart) || 0;
-                      const remaining = Math.max(0, total - paid);
-                      if (remaining === 0) {
-                        return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
-                      }
-                      if (paid > 0) {
-                        return (
-                          <span>
-                            Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
-                          </span>
-                        );
-                      }
-                      return (
-                        <span>
-                          Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
-                        </span>
-                      );
-                    })()}
-                 </div>
+                     {(() => {
+                       const total = Number(formData.installmentCount) || 1;
+                       const paid = Number(formData.installmentStart) || 0;
+                       const remaining = Math.max(0, total - paid);
+
+                       const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                       const dueDateObj = new Date(formData.dueDate + 'T12:00:00');
+                       const lastInstallmentDate = addMonths(dueDateObj, remaining - 1);
+                       const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
+
+                       if (remaining === 0) {
+                         return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
+                       }
+                       return (
+                         <div className="space-y-1">
+                           <div>
+                             {paid > 0 ? (
+                               <span>
+                                 Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
+                               </span>
+                             ) : (
+                               <span>
+                                 Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
+                               </span>
+                             )}
+                           </div>
+                           <div className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
+                             <span>📅 A última parcela ({total}ª) vencerá em</span>
+                             <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
+                           </div>
+                         </div>
+                       );
+                     })()}
+                  </div>
                </div>
              )}
           </div>
@@ -1101,7 +1217,13 @@ export default function TransactionsPage() {
             </button>
             <button 
               type="submit" 
-              className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl text-xs font-bold hover:shadow-lg transition-all"
+              disabled={!isTxFormValid}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                !isTxFormValid 
+                  ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed border border-border" 
+                  : "bg-primary text-primary-foreground hover:shadow-lg hover:shadow-primary/20"
+              )}
             >
               {editingTransaction ? "Salvar" : "Cadastrar"}
             </button>

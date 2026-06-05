@@ -162,6 +162,8 @@ export default function GoalsPage() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [goalToAddFunds, setGoalToAddFunds] = useState<Goal | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -230,6 +232,7 @@ export default function GoalsPage() {
       addGoal(data);
     }
     setActiveModal(null);
+    setShowSuccessModal(true);
   };
 
   const handleEdit = (goal: Goal) => {
@@ -306,7 +309,7 @@ export default function GoalsPage() {
             key={goal.id} 
             goal={goal} 
             onEdit={handleEdit} 
-            onDelete={deleteGoal} 
+            onDelete={(id) => setDeletingGoalId(id)} 
             onAddFunds={(g) => {
               setGoalToAddFunds(g);
               setActiveModal('add_funds');
@@ -408,6 +411,62 @@ export default function GoalsPage() {
              <button type="submit" className="flex-1 bg-primary text-primary-foreground py-4 rounded-2xl text-[10px] font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">{editingGoal ? "Salvar Meta" : "Ativar Meta"}</button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={!!deletingGoalId}
+        onClose={() => setDeletingGoalId(null)}
+        title="Confirmar Exclusão"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+            Tem certeza que deseja excluir esta meta financeira? <br/>
+            Isso removerá a meta e todo o histórico de progresso associado a ela. Esta ação não pode ser desfeita.
+          </p>
+          <div className="flex gap-3">
+            <button 
+              onClick={() => setDeletingGoalId(null)}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={() => {
+                if (deletingGoalId) {
+                  deleteGoal(deletingGoalId);
+                  setDeletingGoalId(null);
+                }
+              }}
+              className="flex-1 bg-rose-500 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-600 transition-all uppercase tracking-widest cursor-pointer"
+            >
+              Excluir
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title="Sucesso"
+      >
+        <div className="flex flex-col items-center justify-center py-6 text-center space-y-4">
+          <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center border border-primary/30">
+            <CheckCircle2 className="w-8 h-8 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-foreground">Pronto!</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              Sua meta financeira foi salva com sucesso e já está ativa.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSuccessModal(false)}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 rounded-xl font-bold transition-all mt-4"
+          >
+            Entendido
+          </button>
+        </div>
       </Modal>
     </div>
   );
