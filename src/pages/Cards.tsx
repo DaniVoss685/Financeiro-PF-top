@@ -7,9 +7,10 @@ import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumCurrencyInput, PremiumDatePicker } from '../components/ui/PremiumInputs';
+import { CategoryIcon } from '../components/CategoryIcon';
 
 export default function CardsPage() {
-  const { creditCards, transactions, categories, banks, addCreditCard, updateCreditCard, deleteCreditCard, addTransaction, deleteTransaction } = useAppContext();
+  const { creditCards, transactions, categories, banks, addCreditCard, updateCreditCard, deleteCreditCard, addTransaction, deleteTransaction, markTransactionAsPaid } = useAppContext();
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -156,6 +157,7 @@ export default function CardsPage() {
       type: 'EXPENSE' as const,
       categoryId: newPurchaseCategory || categories.filter(c => c.type === 'EXPENSE' || c.type === 'BOTH')[0]?.id || '',
       creditCardId: cardId,
+      bankId: card.bankId,
       competenceDate: new Date(newPurchaseDate + 'T12:00:00').toISOString(),
       dueDate: calculatedDueDate.toISOString(),
       status: 'OPEN' as const,
@@ -169,6 +171,23 @@ export default function CardsPage() {
     setNewPurchaseDesc('');
     setNewPurchaseAmount('');
     setNewPurchaseDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  const handlePayInvoice = async (cardId: string, txs: Transaction[]) => {
+    const openTxs = txs.filter(t => t.status === 'OPEN');
+    if (openTxs.length === 0) return;
+
+    const paymentDate = format(new Date(), 'yyyy-MM-dd');
+
+    try {
+      for (const t of openTxs) {
+        await markTransactionAsPaid(t.id, paymentDate);
+      }
+      setActiveModal('invoice_payment_success');
+    } catch (error) {
+      console.error("Erro ao pagar a fatura:", error);
+      alert("Ocorreu um erro ao processar o pagamento da fatura.");
+    }
   };
 
   const getCategory = (id: string) => categories.find(c => c.id === id);
@@ -248,6 +267,7 @@ export default function CardsPage() {
         {creditCards.map(card => {
           const invoiceTotalMonth = currentInvoiceTotal(card.id);
           const usedPct = (invoiceTotalMonth / card.totalLimit) * 100;
+          const cardTxs = getInvoiceTransactions(card.id, selectedMonth, selectedYear);
           
           return (
             <div key={card.id} className="flex flex-col gap-4">
@@ -304,16 +324,15 @@ export default function CardsPage() {
                 <div className="grid grid-cols-2 gap-4 pb-2 border-b border-border/40">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <div className="w-4 h-4 rounded bg-muted flex items-center justify-center">🗓️</div>
-                    Fecha: <span className="text-foreground font-bold capitalize">{format(new Date(selectedYear, selectedMonth, card.closingDay), "d 'de' MMM", { locale: ptBR })}</span>
+                    Fecha: <span className="text-foreground font-bold capitalize">{format(new Date(selectedYear, card.dueDay < card.closingDay ? selectedMonth - 1 : selectedMonth, card.closingDay), "d 'de' MMM", { locale: ptBR })}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                     <div className="w-4 h-4 rounded bg-muted flex items-center justify-center">🗓️</div>
-                    Vence: <span className="text-foreground font-bold capitalize">{format(new Date(selectedYear, card.dueDay < card.closingDay ? selectedMonth + 1 : selectedMonth, card.dueDay), "d 'de' MMM", { locale: ptBR })}</span>
+                    Vence: <span className="text-foreground font-bold capitalize">{format(new Date(selectedYear, selectedMonth, card.dueDay), "d 'de' MMM", { locale: ptBR })}</span>
                   </div>
                 </div>
 
                 {(() => {
-                  const cardTxs = getCardTransactions(card.id).filter(t => t.status === 'OPEN');
                   const previewTxs = cardTxs.slice(0, 4);
                   const remainingTxsCount = cardTxs.length - previewTxs.length;
 
@@ -324,16 +343,30 @@ export default function CardsPage() {
                       <div className="space-y-1.5">
                         {previewTxs.map(t => {
                           const cat = getCategory(t.categoryId);
+                          const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
                           return (
-                            <div key={t.id} className="flex justify-between items-center bg-muted/20 px-3 py-2 rounded-lg">
+                            <div key={t.id} className="flex justify-between items-center bg-muted/20 px-3 py-2 rounded-lg relative overflow-hidden group">
                               <div className="flex items-center gap-2 truncate">
                                 <span className={cn("w-2 h-2 rounded-full hidden sm:block")} style={{ backgroundColor: cat?.color || '#888' }} />
-                                <span className="text-xs font-medium text-foreground truncate">
+                                <span className={cn(
+                                  "text-xs font-medium truncate",
+                                  isPaid ? "text-muted-foreground/60 line-through decoration-emerald-500/40" : "text-foreground"
+                                )}>
                                   <span className="text-muted-foreground mr-1">Dia {format(parseISO(t.competenceDate || t.dueDate), "dd")}</span>
                                   {t.description}
                                 </span>
                               </div>
-                              <span className="text-xs font-bold text-foreground ml-2">{formatCurrency(t.amount)}</span>
+                              <div className="flex items-center gap-1.5 ml-2">
+                                <span className={cn(
+                                  "text-xs font-bold",
+                                  isPaid ? "text-emerald-500 font-bold" : "text-foreground"
+                                )}>
+                                  {formatCurrency(t.amount)}
+                                </span>
+                                {isPaid && (
+                                  <span className="text-[10px] text-emerald-500 font-bold" title="Pago">✓</span>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -348,12 +381,40 @@ export default function CardsPage() {
                 })()}
 
                 <div className="pt-1">
-                  <button 
-                    onClick={() => setViewingInvoiceId(card.id)}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-muted/40 hover:bg-muted text-foreground rounded-xl text-sm font-bold transition-all border border-border/50"
-                  >
-                    <CardIcon className="w-4 h-4" /> Ver Fatura
-                  </button>
+                  {(() => {
+                    const openTxs = cardTxs.filter(t => t.status === 'OPEN');
+                    const hasTransactions = cardTxs.length > 0;
+                    
+                    return (
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setViewingInvoiceId(card.id)}
+                          className={cn(
+                            "flex items-center justify-center gap-2 py-2.5 bg-muted/40 hover:bg-muted text-foreground rounded-xl text-xs font-bold transition-all border border-border/50",
+                            hasTransactions ? "w-1/2" : "w-full"
+                          )}
+                        >
+                          <CardIcon className="w-4 h-4" /> Ver Fatura
+                        </button>
+                        
+                        {hasTransactions && (
+                          openTxs.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => handlePayInvoice(card.id, cardTxs)}
+                              className="w-1/2 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-600/15"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Pagar
+                            </button>
+                          ) : (
+                            <div className="w-1/2 flex items-center justify-center gap-1 py-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 font-bold text-xs uppercase tracking-wider rounded-xl select-none">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Paga 🎉
+                            </div>
+                          )
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="flex items-center justify-center gap-4 mt-4">
                     <button 
                       onClick={() => handleEditCard(card)}
@@ -419,9 +480,25 @@ export default function CardsPage() {
                         Limite Disponível: {formatCurrency(card.availableLimit)}
                       </p>
                       <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-border/40 text-[10px] text-muted-foreground font-semibold">
-                        <div>Fechamento: Dia <span className="text-foreground font-black capitalize">{format(new Date(selectedYear, selectedMonth, card.closingDay), "d 'de' MMM", { locale: ptBR })}</span></div>
-                        <div>Vencimento: Dia <span className="text-foreground font-black capitalize">{format(new Date(selectedYear, card.dueDay < card.closingDay ? selectedMonth + 1 : selectedMonth, card.dueDay), "d 'de' MMM", { locale: ptBR })}</span></div>
+                        <div>Fechamento: Dia <span className="text-foreground font-black capitalize">{format(new Date(selectedYear, card.dueDay < card.closingDay ? selectedMonth - 1 : selectedMonth, card.closingDay), "d 'de' MMM", { locale: ptBR })}</span></div>
+                        <div>Vencimento: Dia <span className="text-foreground font-black capitalize">{format(new Date(selectedYear, selectedMonth, card.dueDay), "d 'de' MMM", { locale: ptBR })}</span></div>
                       </div>
+
+                      {invoiceTotal > 0 ? (
+                        cardTxs.some(t => t.status === 'OPEN') ? (
+                          <button
+                            type="button"
+                            onClick={() => handlePayInvoice(card.id, cardTxs)}
+                            className="w-full mt-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-600/15 hover:scale-[1.01] active:scale-[0.99] cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> Pagar Fatura
+                          </button>
+                        ) : (
+                          <div className="w-full mt-5 py-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 font-bold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 select-none">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Fatura Paga 🎉
+                          </div>
+                        )
+                      ) : null}
                     </div>
 
                     {/* Form: Register Purchase */}
@@ -528,8 +605,8 @@ export default function CardsPage() {
                             return (
                               <div key={t.id} className="flex justify-between items-center p-4 rounded-xl border border-border/40 bg-card hover:border-primary/30 transition-all duration-200 group">
                                 <div className="flex items-center gap-3.5">
-                                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-muted/60" style={{ backgroundColor: cat ? `${cat.color}15` : undefined }}>
-                                    <span className="text-lg" style={{ color: cat?.color }}>{cat?.icon || '🛍️'}</span>
+                                  <div className="w-10 h-10 rounded-full flex items-center justify-center bg-muted/60 shrink-0">
+                                    {cat && <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />}
                                   </div>
                                   <div className="flex flex-col">
                                     <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
@@ -546,6 +623,14 @@ export default function CardsPage() {
                                       </span>
                                       <span className="hidden sm:inline text-muted-foreground/30">•</span>
                                       <span>{cat?.name || 'Sem Categoria'}</span>
+                                      {t.status === 'PAID' && t.paymentDate && (
+                                        <>
+                                          <span className="hidden sm:inline text-muted-foreground/30">•</span>
+                                          <span className="font-semibold text-emerald-500">
+                                            Pago em: {format(parseISO(t.paymentDate), "dd/MM/yyyy", { locale: ptBR })}
+                                          </span>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -764,6 +849,30 @@ export default function CardsPage() {
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 rounded-xl font-bold transition-all mt-4"
           >
             Entendido
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={activeModal === 'invoice_payment_success'}
+        onClose={() => setActiveModal(null)}
+        title="Fatura Paga com Sucesso"
+      >
+        <div className="flex flex-col items-center justify-center py-6 text-center space-y-4">
+          <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center border border-emerald-500/30">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500 animate-bounce" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-foreground">Pagamento Confirmado!</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              Todas as compras deste ciclo de fatura foram marcadas como pagas com sucesso.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveModal(null)}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-3 rounded-xl font-bold transition-all mt-4"
+          >
+            Ótimo!
           </button>
         </div>
       </Modal>

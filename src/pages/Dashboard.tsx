@@ -40,6 +40,22 @@ import { ptBR } from 'date-fns/locale';
 
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 
+function calculateCardDueDate(purchaseDateStr: string, closingDay: number, dueDay: number): Date {
+  const purchaseDate = new Date(purchaseDateStr + 'T12:00:00');
+  let dueYear = purchaseDate.getFullYear();
+  let dueMonth = purchaseDate.getMonth();
+
+  if (purchaseDate.getDate() > closingDay) {
+    dueMonth += 1;
+  }
+
+  if (dueDay < closingDay) {
+    dueMonth += 1;
+  }
+
+  return new Date(dueYear, dueMonth, dueDay, 12, 0, 0);
+}
+
 const expenses = [
   { name: 'Aluguel', value: '95%', Icon: Home },
   { name: 'Supermercado', value: '77%', Icon: ShoppingBag },
@@ -62,6 +78,13 @@ export default function DashboardPage() {
   } = useAppContext();
 
   const overdueExpenses = notifications.filter(n => n.type === 'OVERDUE' && !n.isIncome);
+
+  const activeReminders = reminders.filter(r => {
+    if (r.isCompleted) return false;
+    const tx = transactions.find(t => t.id === r.transactionId);
+    if (tx && tx.creditCardId) return false;
+    return true;
+  });
 
   const handleQuickPay = (t: any) => {
     const isVirtual = t.id.toString().startsWith('recurring-');
@@ -207,15 +230,18 @@ export default function DashboardPage() {
   const handleCardChange = (cardId: string) => {
     const card = creditCards.find(cc => cc.id === cardId);
     if (card) {
-      const today = new Date();
-      const dueDate = new Date(today.getFullYear(), today.getMonth(), card.dueDay);
       setNewTx({
         ...newTx,
         creditCardId: cardId,
-        dueDate: format(dueDate, 'yyyy-MM-dd')
+        bankId: card.bankId,
+        isPaid: false
       });
     } else {
-      setNewTx({ ...newTx, creditCardId: cardId });
+      setNewTx({
+        ...newTx,
+        creditCardId: cardId,
+        isPaid: true
+      });
     }
   };
 
@@ -246,6 +272,11 @@ export default function DashboardPage() {
       finalCategoryId = defaultCat?.id || (categories[0]?.id || '');
     }
 
+    const card = newTx.creditCardId ? creditCards.find(cc => cc.id === newTx.creditCardId) : null;
+    const calculatedDueDate = card 
+      ? calculateCardDueDate(newTx.dueDate, card.closingDay, card.dueDay)
+      : new Date(newTx.dueDate + 'T12:00:00');
+
     const txData = {
       description: newTx.description,
       amount: Number(newTx.amount),
@@ -253,7 +284,7 @@ export default function DashboardPage() {
       categoryId: finalCategoryId,
       bankId: newTx.bankId || undefined,
       creditCardId: newTx.creditCardId || undefined,
-      dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
+      dueDate: calculatedDueDate.toISOString(),
       paymentDate: newTx.isPaid ? new Date(newTx.paymentDate + 'T12:00:00').toISOString() : undefined,
       status: newTx.isPaid ? (type === 'INCOME' ? 'RECEIVED' : 'PAID') : 'OPEN' as any,
       isRecurring: newTx.isRecurring,
@@ -270,6 +301,9 @@ export default function DashboardPage() {
         addTransaction({
           ...txData,
           competenceDate: editingTransaction.competenceDate,
+          dueDate: card 
+            ? calculateCardDueDate(format(parseISO(editingTransaction.competenceDate), 'yyyy-MM-dd'), card.closingDay, card.dueDay).toISOString()
+            : calculatedDueDate.toISOString(),
           isRecurring: false
         });
         excludeRecurringMonth(parentId, monthYearKey);
@@ -278,6 +312,9 @@ export default function DashboardPage() {
           addTransaction({
             ...txData,
             competenceDate: editingTransaction.competenceDate,
+            dueDate: card 
+              ? calculateCardDueDate(format(parseISO(editingTransaction.competenceDate), 'yyyy-MM-dd'), card.closingDay, card.dueDay).toISOString()
+              : calculatedDueDate.toISOString(),
             isRecurring: false
           });
           
@@ -320,7 +357,7 @@ export default function DashboardPage() {
       setCreatedTransactionInfo({
         ...txData,
         id: editingTransaction.id,
-        dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
+        dueDate: calculatedDueDate.toISOString()
       });
 
       setActiveModal('success_created');
@@ -340,10 +377,16 @@ export default function DashboardPage() {
           const installmentDueDate = addMonths(baseDueDate, offset);
           const installmentPaymentDate = addMonths(basePaymentDate, offset);
           
+          let finalInstallmentDueDate = installmentDueDate;
+          if (card) {
+            const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
+            finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+          }
+
           const id = addTransaction({
             ...txData,
-            competenceDate: installmentDueDate.toISOString(), // Set competence to due date of each installment
-            dueDate: installmentDueDate.toISOString(),
+            competenceDate: installmentDueDate.toISOString(), // Set competence to purchase date of each installment
+            dueDate: finalInstallmentDueDate.toISOString(),
             paymentDate: (offset === 0 && newTx.isPaid) ? installmentPaymentDate.toISOString() : undefined,
             status: (offset === 0 && newTx.isPaid) ? txData.status : 'OPEN',
             isInstallment: true,
@@ -358,7 +401,7 @@ export default function DashboardPage() {
         createdId = addTransaction({
           ...txData,
           competenceDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
-          dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString(),
+          dueDate: calculatedDueDate.toISOString(),
           paymentDate: newTx.isPaid ? new Date(newTx.paymentDate + 'T12:00:00').toISOString() : undefined,
           isInstallment: false
         });
@@ -367,7 +410,7 @@ export default function DashboardPage() {
       setCreatedTransactionInfo({ 
         ...txData, 
         id: createdId,
-        dueDate: new Date(newTx.dueDate + 'T12:00:00').toISOString()
+        dueDate: calculatedDueDate.toISOString()
       });
 
       const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -744,13 +787,12 @@ export default function DashboardPage() {
           )}
 
             <div className="grid grid-cols-2 gap-4">
-              <div className={cn(newTx.creditCardId && "opacity-50 pointer-events-none")}>
+              <div>
                 <PremiumDatePicker 
-                  label="Vencimento"
+                  label={newTx.creditCardId ? "Data da Compra" : "Vencimento"}
                   value={newTx.dueDate}
                   onChange={val => setNewTx({...newTx, dueDate: val})}
                 />
-                {newTx.creditCardId && <p className="text-[9px] text-primary font-bold mt-1 ml-1 px-1 tracking-tight">Bloqueado p/ Cartão</p>}
               </div>
               <div className={cn(!newTx.isPaid && "opacity-50 pointer-events-none")}>
                 <PremiumDatePicker 
@@ -762,22 +804,31 @@ export default function DashboardPage() {
             </div>
           
           <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all" 
-                 onClick={() => setNewTx({...newTx, isPaid: !newTx.isPaid})}>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
-                <span className="text-[10px] text-muted-foreground">Esta transação já foi realizada?</span>
-              </div>
-              <div className={cn(
-                "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                newTx.isPaid ? "bg-primary" : "bg-muted"
-              )}>
-                <div className={cn(
-                  "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                  newTx.isPaid ? "translate-x-5" : "translate-x-0"
-                )} />
-              </div>
-            </div>
+             <div className={cn(
+                    "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all",
+                    newTx.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                  )} 
+                  onClick={() => {
+                    if (!newTx.creditCardId) {
+                      setNewTx({...newTx, isPaid: !newTx.isPaid});
+                    }
+                  }}>
+               <div className="flex flex-col">
+                 <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
+                 <span className="text-[10px] text-muted-foreground">
+                   {newTx.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
+                 </span>
+               </div>
+               <div className={cn(
+                 "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
+                 newTx.isPaid ? "bg-primary" : "bg-muted"
+               )}>
+                 <div className={cn(
+                   "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                   newTx.isPaid ? "translate-x-5" : "translate-x-0"
+                 )} />
+               </div>
+             </div>
 
             {activeModal === 'new_transaction_expense' && (
               <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all" onClick={() => setNewTx({...newTx, isInstallment: !newTx.isInstallment})}>
@@ -1713,6 +1764,11 @@ export default function DashboardPage() {
                             {tx.description}
                             {isVirtual && <span className="text-[8px] bg-primary/20 text-primary px-1 rounded border border-primary/20">Previsto</span>}
                           </span>
+                          {tx.creditCardId && (
+                            <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded mt-1 w-fit flex items-center gap-1 animate-pulse">
+                              <span>💳</span> Fatura do Cartão
+                            </span>
+                          )}
                           
                           {/* Em celular ou tablets pequenos, mostre datas de forma compacta para não quebrar o layout */}
                           <div className="md:hidden flex flex-col gap-0.5 text-[10px] text-muted-foreground mt-0.5 font-medium">
@@ -1855,12 +1911,12 @@ export default function DashboardPage() {
                 </div>
                 
                 <div className="space-y-3">
-                  {reminders.filter(r => !r.isCompleted).length === 0 ? (
+                  {activeReminders.length === 0 ? (
                     <div className="text-center py-6 border-2 border-dashed border-border rounded-2xl">
                       <p className="text-[10px] text-muted-foreground italic">Nenhum lembrete pendente.</p>
                     </div>
                   ) : (
-                    reminders.filter(r => !r.isCompleted).map(reminder => (
+                    activeReminders.map(reminder => (
                       <div key={reminder.id} className="p-3 bg-muted/20 border border-border/50 rounded-2xl flex flex-col gap-1 group">
                         <div className="flex justify-between items-start">
                           <span className="text-xs font-bold text-foreground/90 group-hover:text-primary transition-colors">{reminder.title}</span>
@@ -1874,7 +1930,17 @@ export default function DashboardPage() {
                         <p className="text-[10px] text-muted-foreground line-clamp-2">{reminder.description}</p>
                         <div className="flex justify-between items-center mt-1">
                           <span className="text-[10px] font-bold text-amber-400">
-                            {format(new Date(reminder.dueDate + 'T12:00:00'), "dd 'de' MMMM", { locale: ptBR })}
+                            {(() => {
+                              try {
+                                const dateStr = reminder.dueDate;
+                                if (!dateStr) return '';
+                                const dateObj = dateStr.includes('T') ? parseISO(dateStr) : new Date(dateStr + 'T12:00:00');
+                                return format(dateObj, "dd 'de' MMMM", { locale: ptBR });
+                              } catch (e) {
+                                console.error("Error formatting reminder dueDate:", e);
+                                return '';
+                              }
+                            })()}
                           </span>
                           <button 
                             onClick={() => completeReminder(reminder.id)}

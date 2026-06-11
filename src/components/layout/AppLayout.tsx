@@ -44,6 +44,7 @@ const MENU_ITEMS = [
 export function AppLayout() {
   const { theme, toggleTheme, notifications, markTransactionAsPaid, payAllOverdue, reminders, completeReminder, transactions, updateReminder, currentUser, logoutUser } = useAppContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isOverdueModalOpen, setIsOverdueModalOpen] = useState(false);
   const [activeReminder, setActiveReminder] = useState<any>(null);
@@ -109,7 +110,7 @@ export function AppLayout() {
         const message = `🔔 *Noble Finance - Alerta de ${txTypeName}* 🔔\n\n` +
                         `📝 *Nome:* ${txName}\n` +
                         `💰 *Valor:* ${txAmount}\n` +
-                        `📅 *Vencimento:* ${format(new Date(reminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
+                        `📅 *Vencimento:* ${format(new Date(reminder.dueDate.includes('T') ? reminder.dueDate : reminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
                         `${warningText}\n\n` +
                         `Noble Finance App 💰`;
 
@@ -233,8 +234,8 @@ export function AppLayout() {
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans" onMouseMove={handleSidebarInteraction}>
       {/* Top Header */}
       <header className="flex items-center justify-between px-6 py-4 bg-background z-30">
-        <div className="w-56 flex items-center">
-          <span className="text-foreground font-black font-display text-2xl tracking-tighter flex items-center gap-1 uppercase italic">
+        <div className="w-auto sm:w-56 flex items-center shrink-0">
+          <span className="text-foreground font-black font-display text-lg sm:text-2xl tracking-tighter flex items-center gap-1 uppercase italic select-none">
             <span className="text-foreground">Noble</span>
             <span className="text-primary">Finance</span>
           </span>
@@ -369,7 +370,7 @@ export function AppLayout() {
             
             <button
               onClick={() => logoutUser()}
-              className="p-1 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+              className="p-1 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer hidden sm:block"
               title="Sair do Sistema"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -514,7 +515,7 @@ export function AppLayout() {
               <div className="pt-3 border-t border-border/40 flex justify-between items-center">
                 <span className="text-[10px] text-muted-foreground font-bold uppercase">Data Limite</span>
                 <span className="text-sm font-black text-amber-400">
-                  {activeReminder?.dueDate && format(new Date(activeReminder.dueDate + 'T12:00:00'), "dd 'de' MMMM", { locale: ptBR })}
+                  {activeReminder?.dueDate && format(new Date(activeReminder.dueDate.includes('T') ? activeReminder.dueDate : activeReminder.dueDate + 'T12:00:00'), "dd 'de' MMMM", { locale: ptBR })}
                 </span>
               </div>
             </div>
@@ -559,7 +560,7 @@ export function AppLayout() {
                       const message = `🔔 *Noble Finance - Lembrete de ${relatedTx?.type === 'INCOME' ? 'Recebimento' : 'Pagamento'}* 🔔\n\n` +
                                       `📝 *Nome:* ${txName}\n` +
                                       `💰 *Valor:* ${txAmount}\n` +
-                                      `📅 *Vencimento:* ${format(new Date(activeReminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
+                                      `📅 *Vencimento:* ${format(new Date(activeReminder.dueDate.includes('T') ? activeReminder.dueDate : activeReminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
                                       `${warningText}\n\n` +
                                       `Noble Finance App 💰`;
                                       
@@ -721,7 +722,7 @@ export function AppLayout() {
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border bg-card/80 backdrop-blur-lg pb-safe z-50">
         <div className="flex justify-around items-center p-2">
-          {MENU_ITEMS.slice(0, 5).map((item) => (
+          {MENU_ITEMS.slice(0, 4).map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -734,8 +735,94 @@ export function AppLayout() {
               <span className="text-[10px] font-medium">{item.name.substring(0, 8)}</span>
             </NavLink>
           ))}
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex flex-col items-center gap-1 p-2 rounded-lg transition-all text-muted-foreground hover:text-foreground"
+          >
+            <LayoutGrid className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Mais</span>
+          </button>
         </div>
       </nav>
+
+      {/* Mobile Drawer */}
+      <div className={cn(
+        "fixed inset-0 z-[100] md:hidden transition-all duration-300",
+        isMobileMenuOpen ? "pointer-events-auto" : "pointer-events-none"
+      )}>
+        {/* Backdrop */}
+        <div 
+          className={cn(
+            "absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity duration-300",
+            isMobileMenuOpen ? "opacity-100" : "opacity-0"
+          )}
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+        {/* Drawer Content */}
+        <div className={cn(
+          "absolute top-0 bottom-0 left-0 w-[280px] bg-card border-r border-border p-6 flex flex-col gap-6 transition-transform duration-300 shadow-2xl",
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        )}>
+          {/* Header */}
+          <div className="flex justify-between items-center pb-4 border-b border-border">
+            <span className="text-lg font-black tracking-tight text-primary italic">NOBLE FINANCE</span>
+            <button 
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+            >
+              <ChevronLeft size={20} />
+            </button>
+          </div>
+
+          {/* Nav Links */}
+          <nav className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar">
+            {MENU_ITEMS.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex items-center gap-4 px-4 py-3 rounded-2xl transition-all relative overflow-hidden",
+                  isActive 
+                    ? "bg-primary text-primary-foreground shadow-md font-bold" 
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
+              >
+                <item.icon className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-semibold tracking-tight">
+                  {item.name}
+                </span>
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* Theme & Actions footer */}
+          <div className="pt-4 border-t border-border flex flex-col gap-3">
+            <button
+              onClick={() => {
+                toggleTheme();
+                setIsMobileMenuOpen(false);
+              }}
+              className="flex items-center gap-4 rounded-2xl transition-all p-3 text-muted-foreground hover:bg-muted"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              <span className="text-xs font-semibold">Alternar Tema</span>
+            </button>
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                logoutUser();
+              }}
+              className="flex items-center gap-4 rounded-2xl transition-all p-3 text-red-500 hover:bg-red-500/10"
+            >
+              <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="text-xs font-bold">Sair da Conta</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

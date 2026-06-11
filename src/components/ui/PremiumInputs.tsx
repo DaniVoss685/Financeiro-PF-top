@@ -118,9 +118,10 @@ interface PremiumSelectProps {
   label?: string;
   className?: string;
   required?: boolean;
+  disabled?: boolean;
 }
 
-export function PremiumSelect({ options, value, onChange, placeholder = 'Selecione...', label, className, required }: PremiumSelectProps) {
+export function PremiumSelect({ options, value, onChange, placeholder = 'Selecione...', label, className, required, disabled }: PremiumSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -147,11 +148,13 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 bg-card border border-border/60 rounded-xl text-sm transition-all text-left outline-none shadow-sm",
           isOpen ? "border-primary ring-1 ring-primary/10" : "hover:border-primary/50",
-          !selectedOption && "text-muted-foreground"
+          !selectedOption && "text-muted-foreground",
+          disabled && "opacity-60 cursor-not-allowed bg-muted/20 hover:border-border/60"
         )}
       >
         <div className="flex items-center gap-2.5 flex-1 min-w-0">

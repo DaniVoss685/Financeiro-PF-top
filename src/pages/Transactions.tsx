@@ -11,6 +11,22 @@ import { CategoryIcon } from '../components/CategoryIcon';
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 import TransactionsImporter from '../components/TransactionsImporter';
 
+function calculateCardDueDate(purchaseDateStr: string, closingDay: number, dueDay: number): Date {
+  const purchaseDate = new Date(purchaseDateStr + 'T12:00:00');
+  let dueYear = purchaseDate.getFullYear();
+  let dueMonth = purchaseDate.getMonth();
+
+  if (purchaseDate.getDate() > closingDay) {
+    dueMonth += 1;
+  }
+
+  if (dueDay < closingDay) {
+    dueMonth += 1;
+  }
+
+  return new Date(dueYear, dueMonth, dueDay, 12, 0, 0);
+}
+
 const TransactionTable = ({ 
   data, 
   type, 
@@ -23,6 +39,7 @@ const TransactionTable = ({
   onSort,
   categories,
   banks,
+  creditCards,
   reminders,
   onCreateReminder,
   onQuickPay,
@@ -40,6 +57,7 @@ const TransactionTable = ({
   onSort: (field: string) => void,
   categories: Category[],
   banks: any[],
+  creditCards: any[],
   reminders: any[],
   onCreateReminder: (t: Transaction) => void,
   onQuickPay: (t: Transaction) => void,
@@ -143,7 +161,13 @@ const TransactionTable = ({
               </tr>
             ) : data.map(t => {
                 const cat = getCategory(t.categoryId);
-                const bank = getBank(t.bankId);
+                let bank = getBank(t.bankId);
+                if (!bank && t.creditCardId && creditCards) {
+                  const card = creditCards.find(cc => cc.id === t.creditCardId);
+                  if (card) {
+                    bank = getBank(card.bankId);
+                  }
+                }
                 const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
 
                 return (
@@ -151,6 +175,11 @@ const TransactionTable = ({
                     <td className="p-4">
                       <div className="flex flex-col">
                         <p className="font-bold text-base text-foreground/90 leading-tight">{t.description}</p>
+                        {t.creditCardId && (
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-lg w-fit">
+                            💳 Esta despesa está na fatura do cartão
+                          </span>
+                        )}
                         {t.isInstallment && t.installmentTotal && t.installmentCurrent && (
                           <span className="text-[10px] text-muted-foreground/80 font-semibold tracking-tight mt-1 animate-in fade-in duration-200">
                             {(() => {
@@ -675,17 +704,18 @@ export default function TransactionsPage() {
   const handleCardChange = (cardId: string) => {
     const card = creditCards.find(cc => cc.id === cardId);
     if (card) {
-      const today = new Date();
-      const dueDate = new Date(today.getFullYear(), today.getMonth(), card.dueDay);
-      // If today is after closing day, it might be for next month's invoice, 
-      // but let's keep it simple as requested: "current month's invoice"
       setFormData({
         ...formData,
         creditCardId: cardId,
-        dueDate: format(dueDate, 'yyyy-MM-dd')
+        bankId: card.bankId,
+        isPaid: false
       });
     } else {
-      setFormData({ ...formData, creditCardId: cardId });
+      setFormData({
+        ...formData,
+        creditCardId: cardId,
+        isPaid: true
+      });
     }
   };
 
@@ -710,19 +740,22 @@ export default function TransactionsPage() {
       });
     }
 
+    const card = formData.creditCardId ? creditCards.find(cc => cc.id === formData.creditCardId) : null;
+    const calculatedDueDate = card 
+      ? calculateCardDueDate(formData.dueDate, card.closingDay, card.dueDay)
+      : new Date(formData.dueDate + 'T12:00:00');
+
     const txData = {
       description: formData.description,
       amount: Number(formData.amount),
       type: formData.type,
       categoryId,
-      bankId: formData.bankId,
+      bankId: formData.bankId || undefined,
       creditCardId: formData.creditCardId || undefined,
-      dueDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
+      dueDate: calculatedDueDate.toISOString(),
       paymentDate: formData.isPaid ? new Date(formData.paymentDate + 'T12:00:00').toISOString() : undefined,
       status: formData.isPaid ? (formData.type === 'INCOME' ? 'RECEIVED' : 'PAID') : 'OPEN' as any,
-      competenceDate: editingTransaction ? (editingTransaction.id.toString().startsWith('recurring-') ? editingTransaction.competenceDate : editingTransaction.competenceDate) : new Date(formData.dueDate + 'T12:00:00').toISOString(),
       isRecurring: formData.isRecurring,
-      isInstallment: formData.isInstallment,
       installmentTotal: formData.isInstallment ? Number(formData.installmentCount) : undefined,
       installmentCurrent: formData.isInstallment ? (editingTransaction?.installmentCurrent || 1) : undefined,
       linkedGoalId: formData.linkedGoalId || undefined,
@@ -736,6 +769,10 @@ export default function TransactionsPage() {
         
         addTransaction({
           ...txData,
+          competenceDate: editingTransaction.competenceDate,
+          dueDate: card 
+            ? calculateCardDueDate(format(parseISO(editingTransaction.competenceDate), 'yyyy-MM-dd'), card.closingDay, card.dueDay).toISOString()
+            : calculatedDueDate.toISOString(),
           isRecurring: false
         });
         excludeRecurringMonth(parentId, monthYearKey);
@@ -743,6 +780,10 @@ export default function TransactionsPage() {
         if (editingTransaction.isRecurring) {
           addTransaction({
             ...txData,
+            competenceDate: editingTransaction.competenceDate,
+            dueDate: card 
+              ? calculateCardDueDate(format(parseISO(editingTransaction.competenceDate), 'yyyy-MM-dd'), card.closingDay, card.dueDay).toISOString()
+              : calculatedDueDate.toISOString(),
             isRecurring: false
           });
           
@@ -775,7 +816,10 @@ export default function TransactionsPage() {
             dueDate: new Date(nextMonth.getFullYear(), nextMonth.getMonth(), new Date(editingTransaction.dueDate).getDate()).toISOString()
           });
         } else {
-          updateTransaction(editingTransaction.id, txData);
+          updateTransaction(editingTransaction.id, {
+            ...txData,
+            competenceDate: new Date(formData.dueDate + 'T12:00:00').toISOString()
+          });
         }
       }
       setActiveModal(null);
@@ -791,14 +835,21 @@ export default function TransactionsPage() {
         let offset = 0;
         for (let j = start; j <= count; j++) {
           const installmentDueDate = addMonths(baseDueDate, offset);
-          const instPaymentDate = addMonths(basePaymentDate, offset);
+          const installmentPaymentDate = addMonths(basePaymentDate, offset);
           
+          let finalInstallmentDueDate = installmentDueDate;
+          if (card) {
+            const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
+            finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+          }
+
           const id = addTransaction({
             ...txData,
             competenceDate: installmentDueDate.toISOString(),
-            dueDate: installmentDueDate.toISOString(),
-            paymentDate: offset === 0 ? instPaymentDate.toISOString() : undefined,
-            status: offset === 0 ? txData.status : 'OPEN',
+            dueDate: finalInstallmentDueDate.toISOString(),
+            paymentDate: (offset === 0 && formData.isPaid) ? installmentPaymentDate.toISOString() : undefined,
+            status: (offset === 0 && formData.isPaid) ? txData.status : 'OPEN',
+            installmentTotal: count,
             installmentCurrent: j,
             description: `${txData.description} (${j}/${count})`
           });
@@ -806,15 +857,25 @@ export default function TransactionsPage() {
           offset++;
         }
       } else {
-        createdId = addTransaction(txData);
+        createdId = addTransaction({
+          ...txData,
+          competenceDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
+          dueDate: calculatedDueDate.toISOString(),
+          paymentDate: formData.isPaid ? new Date(formData.paymentDate + 'T12:00:00').toISOString() : undefined,
+          isInstallment: false
+        });
       }
 
-      setCreatedTransactionInfo({ ...txData, id: createdId });
+      setCreatedTransactionInfo({ 
+        ...txData, 
+        id: createdId,
+        dueDate: calculatedDueDate.toISOString()
+      });
 
       const todayStr = format(new Date(), 'yyyy-MM-dd');
-      const dueStr = txData.dueDate ? format(new Date(txData.dueDate + 'T12:00:00'), 'yyyy-MM-dd') : todayStr;
+      const dueStr = formData.dueDate;
 
-      if (txData.type === 'EXPENSE' && dueStr === todayStr && txData.status === 'OPEN') {
+      if (txData.type === 'EXPENSE' && dueStr === todayStr && !formData.isPaid) {
         setActiveModal('due_today_prompt');
       } else {
         setActiveModal('success_created');
@@ -938,6 +999,7 @@ export default function TransactionsPage() {
           onSort={handleSortIncome}
           categories={categories}
           banks={banks}
+          creditCards={creditCards}
           reminders={reminders}
           onCreateReminder={handleCreateReminderClick}
           onQuickPay={handleQuickPay}
@@ -974,6 +1036,7 @@ export default function TransactionsPage() {
           onSort={handleSortExpense}
           categories={categories}
           banks={banks}
+          creditCards={creditCards}
           reminders={reminders}
           onCreateReminder={handleCreateReminderClick}
           onQuickPay={handleQuickPay}
@@ -1041,6 +1104,7 @@ export default function TransactionsPage() {
                 options={bankOptions}
                 value={formData.bankId}
                 onChange={val => setFormData({...formData, bankId: val})}
+                disabled={!!formData.creditCardId}
               />
             </div>
 
@@ -1085,13 +1149,12 @@ export default function TransactionsPage() {
             )}
 
             <div className="grid grid-cols-2 gap-4">
-               <div className={cn(formData.creditCardId && "opacity-50 pointer-events-none")}>
+               <div>
                  <PremiumDatePicker 
-                  label="Vencimento"
+                  label={formData.creditCardId ? "Data da Compra" : "Vencimento"}
                   value={formData.dueDate}
                   onChange={val => setFormData({...formData, dueDate: val})}
                  />
-                 {formData.creditCardId && <p className="text-[9px] text-primary font-bold mt-1 ml-1 px-1">Bloqueado p/ Venc. Cartão</p>}
                </div>
                <div className={cn(!formData.isPaid && "opacity-50 pointer-events-none")}>
                  <PremiumDatePicker 
@@ -1103,11 +1166,20 @@ export default function TransactionsPage() {
             </div>
 
             <div className="flex flex-col gap-3">
-               <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all" 
-                    onClick={() => setFormData({...formData, isPaid: !formData.isPaid})}>
+               <div className={cn(
+                       "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all",
+                       formData.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                     )} 
+                     onClick={() => {
+                       if (!formData.creditCardId) {
+                         setFormData({...formData, isPaid: !formData.isPaid});
+                       }
+                     }}>
                  <div className="flex flex-col">
                    <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
-                   <span className="text-[10px] text-muted-foreground">Esta transação já foi realizada?</span>
+                   <span className="text-[10px] text-muted-foreground">
+                     {formData.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
+                   </span>
                  </div>
                  <div className={cn(
                    "w-10 h-5 rounded-full transition-all relative flex items-center px-1",

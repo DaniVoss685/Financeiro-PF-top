@@ -785,7 +785,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // Criar lembrete automático inteligente de WhatsApp se for vencimento futuro (amanhã em diante)
       const todayStr = format(new Date(), 'yyyy-MM-dd');
-      if ((t.type === 'EXPENSE' || t.type === 'INCOME') && t.status === 'OPEN' && t.dueDate > todayStr) {
+      if ((t.type === 'EXPENSE' || t.type === 'INCOME') && t.status === 'OPEN' && t.dueDate > todayStr && !t.creditCardId) {
         const reminderTitle = `${t.type === 'EXPENSE' ? 'Pagamento' : 'Recebimento'}: ${t.description}`;
         const reminderDesc = `Lembrete automático para o vencimento de ${t.description}`;
         const newReminderId = uuidv4();
@@ -981,7 +981,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        if (updates.dueDate && updates.dueDate !== t.dueDate) {
+        const finalCreditCardId = updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId;
+
+        if (finalCreditCardId) {
+          // Remover lembrete ativo se a transação passou a ter ou já tem cartão de crédito vinculado
+          const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
+          if (related) {
+            deleteReminder(related.id);
+          }
+        } else if (updates.dueDate && updates.dueDate !== t.dueDate) {
           const related = reminders.find(r => r.transactionId === id);
           if (related) {
             updateReminder(related.id, { dueDate: updates.dueDate });
@@ -1218,6 +1226,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                }
                return goal;
              }));
+          }
+
+          if (t.type === 'EXPENSE' && t.creditCardId) {
+            setCreditCards(prevCards => prevCards.map(card => {
+              if (card.id === t.creditCardId) {
+                const updatedUsed = card.usedLimit - t.amount;
+                const updatedAvail = card.availableLimit + t.amount;
+                supabase.from('credit_cards').update({
+                  used_limit: updatedUsed,
+                  available_limit: updatedAvail
+                }).eq('id', card.id).then();
+                return { ...card, usedLimit: updatedUsed, availableLimit: updatedAvail };
+              }
+              return card;
+            }));
           }
         }
         
