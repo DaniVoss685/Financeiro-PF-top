@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { useAppContext } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { formatCurrency, cn } from '../lib/utils';
-import { Plus, Landmark, ArrowRight, Activity, X, Edit2, Trash2, CheckCircle2 } from 'lucide-react';
+import { Plus, Landmark, ArrowRight, Activity, X, Edit2, Trash2, CheckCircle2, Star } from 'lucide-react';
 import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 
 export default function BanksPage() {
-  const { banks, transactions, addBank, updateBank, deleteBank } = useAppContext();
+  const { banks, transactions, addBank, updateBank, deleteBank, defaultBankId, setDefaultBank } = useAppContext();
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingBank, setEditingBank] = useState<any>(null);
   const [deletingBank, setDeletingBank] = useState<any>(null);
@@ -20,6 +20,32 @@ export default function BanksPage() {
     excludeFromAnalysis: false
   });
 
+  const [createCreditCard, setCreateCreditCard] = useState(false);
+  const [cardData, setCardData] = useState({
+    name: '',
+    brand: 'Visa',
+    lastFour: '',
+    totalLimit: 0,
+    closingDay: 1,
+    dueDay: 10,
+    color: '#BCF24B',
+    notes: ''
+  });
+
+  const handleBankNameChange = (name: string) => {
+    setFormData(prev => ({ ...prev, name }));
+    if (!editingBank) {
+      setCardData(prev => ({ ...prev, name: name ? `Cartão ${name}` : '' }));
+    }
+  };
+
+  const handleBankColorChange = (color: string) => {
+    setFormData(prev => ({ ...prev, color }));
+    if (!editingBank) {
+      setCardData(prev => ({ ...prev, color }));
+    }
+  };
+
   const handleSaveBank = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingBank) {
@@ -28,19 +54,37 @@ export default function BanksPage() {
         currentBalance: editingBank.currentBalance - editingBank.initialBalance + formData.initialBalance
       });
     } else {
-      addBank({
-        ...formData,
-        currentBalance: formData.initialBalance
-      });
+      if (createCreditCard) {
+        addBank({
+          ...formData,
+          currentBalance: formData.initialBalance
+        }, cardData);
+      } else {
+        addBank({
+          ...formData,
+          currentBalance: formData.initialBalance
+        });
+      }
     }
     setActiveModal(null);
     setEditingBank(null);
+    setCreateCreditCard(false);
     setFormData({
       name: '',
       type: 'CHECKING',
       initialBalance: 0,
       color: '#BCF24B',
       excludeFromAnalysis: false
+    });
+    setCardData({
+      name: '',
+      brand: 'Visa',
+      lastFour: '',
+      totalLimit: 0,
+      closingDay: 1,
+      dueDay: 10,
+      color: '#BCF24B',
+      notes: ''
     });
     setShowSuccessModal(true);
   };
@@ -124,13 +168,34 @@ export default function BanksPage() {
                     <div className="w-12 h-12 rounded-xl flex items-center justify-center text-foreground font-semibold text-xl relative z-10 shadow-lg" style={{ backgroundColor: bank.color }}>
                       {bank.name.charAt(0)}
                     </div>
-                    <div className="relative z-10">
-                      <h3 className="font-semibold text-lg">{bank.name}</h3>
+                    <div className="relative z-10 flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-lg">{bank.name}</h3>
+                        {defaultBankId === bank.id && (
+                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-400 border border-amber-400/30 flex items-center gap-0.5 leading-none">
+                            ★ Padrão
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {/* Botões de Ação */}
                   <div className="flex items-center gap-1.5 relative z-20">
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDefaultBank(defaultBankId === bank.id ? null : bank.id);
+                      }}
+                      className={cn(
+                        "p-1.5 rounded-lg transition-all cursor-pointer",
+                        defaultBankId === bank.id ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground hover:bg-muted"
+                      )}
+                      title={defaultBankId === bank.id ? "Banco Padrão (Clique para remover)" : "Definir como Banco Padrão"}
+                    >
+                      <Star className={cn("w-4 h-4", defaultBankId === bank.id ? "fill-amber-400" : "")} />
+                    </button>
                     <button 
                       type="button"
                       onClick={(e) => {
@@ -189,12 +254,23 @@ export default function BanksPage() {
         onClose={() => {
           setActiveModal(null);
           setEditingBank(null);
+          setCreateCreditCard(false);
           setFormData({
             name: '',
             type: 'CHECKING',
             initialBalance: 0,
             color: '#BCF24B',
             excludeFromAnalysis: false
+          });
+          setCardData({
+            name: '',
+            brand: 'Visa',
+            lastFour: '',
+            totalLimit: 0,
+            closingDay: 1,
+            dueDay: 10,
+            color: '#BCF24B',
+            notes: ''
           });
         }}
         title={editingBank ? "Editar Conta Bancária" : "Adicionar Nova Conta"}
@@ -207,7 +283,7 @@ export default function BanksPage() {
                 required 
                 type="text" 
                 value={formData.name} 
-                onChange={e => setFormData({...formData, name: e.target.value})} 
+                onChange={e => handleBankNameChange(e.target.value)} 
                 placeholder="Ex: Nubank, Itaú, Carteira..." 
                 className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
               />
@@ -246,7 +322,7 @@ export default function BanksPage() {
                   <button
                     key={color}
                     type="button"
-                    onClick={() => setFormData({...formData, color})}
+                    onClick={() => handleBankColorChange(color)}
                     className={cn(
                       "w-8 h-8 rounded-full border-2 transition-all",
                       formData.color === color ? "border-primary scale-110 shadow-lg shadow-primary/20" : "border-transparent opacity-50 hover:opacity-100"
@@ -256,6 +332,126 @@ export default function BanksPage() {
                 ))}
               </div>
             </div>
+
+            {!editingBank && (
+              <div className="space-y-4 pt-2">
+                <div 
+                  className="flex items-center gap-2.5 p-3 bg-muted/20 border border-border/50 rounded-xl hover:bg-muted/30 transition-all cursor-pointer select-none"
+                  onClick={() => setCreateCreditCard(!createCreditCard)}
+                >
+                  <input 
+                    type="checkbox"
+                    checked={createCreditCard}
+                    onChange={() => {}} // Div click handles changes
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary bg-card"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-foreground">Deseja cadastrar um cartão de crédito para este banco?</span>
+                    <span className="text-[9px] text-muted-foreground">Cria automaticamente um cartão vinculado à nova conta bancária</span>
+                  </div>
+                </div>
+
+                {createCreditCard && (
+                  <div className="space-y-4 p-4 bg-muted/20 border border-border/50 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+                    <h4 className="text-xs font-bold uppercase text-primary tracking-wider pl-1">Dados do Cartão de Crédito</h4>
+                    
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Nome do Cartão</label>
+                      <input 
+                        required={createCreditCard}
+                        type="text" 
+                        value={cardData.name} 
+                        onChange={e => setCardData({...cardData, name: e.target.value})} 
+                        placeholder="Ex: Nubank Mastercard, Itaú Visa..." 
+                        className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <PremiumSelect 
+                        label="Bandeira"
+                        options={[
+                          { value: 'Visa', label: 'Visa' },
+                          { value: 'Mastercard', label: 'Mastercard' },
+                          { value: 'Elo', label: 'Elo' },
+                          { value: 'American Express', label: 'Amex' },
+                          { value: 'Outra', label: 'Outra' }
+                        ]}
+                        value={cardData.brand}
+                        onChange={val => setCardData({...cardData, brand: val})}
+                      />
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Últimos 4 Dígitos</label>
+                        <input 
+                          maxLength={4}
+                          type="text" 
+                          value={cardData.lastFour} 
+                          onChange={e => setCardData({...cardData, lastFour: e.target.value.replace(/\D/g, '')})} 
+                          placeholder="Ex: 1234" 
+                          className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                        />
+                      </div>
+                    </div>
+
+                    <PremiumCurrencyInput 
+                      label="Limite Total do Cartão"
+                      value={cardData.totalLimit}
+                      onChange={val => setCardData({...cardData, totalLimit: val})}
+                    />
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Dia do Fechamento</label>
+                        <input 
+                          required={createCreditCard}
+                          min={1}
+                          max={31}
+                          type="number" 
+                          value={cardData.closingDay || ''} 
+                          onChange={e => setCardData({...cardData, closingDay: Math.max(1, Math.min(31, Number(e.target.value)))})} 
+                          className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Dia do Vencimento</label>
+                        <input 
+                          required={createCreditCard}
+                          min={1}
+                          max={31}
+                          type="number" 
+                          value={cardData.dueDay || ''} 
+                          onChange={e => setCardData({...cardData, dueDay: Math.max(1, Math.min(31, Number(e.target.value)))})} 
+                          className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Cor do Cartão</label>
+                      <div className="flex flex-wrap gap-1.5 pl-1">
+                        {[
+                          '#BCF24B', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
+                          '#0284C7', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#7C3AED', '#EAB308'
+                        ].map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setCardData({...cardData, color})}
+                            className={cn(
+                              "w-6 h-6 rounded-full border transition-all",
+                              cardData.color === color ? "border-primary scale-110 shadow-sm" : "border-transparent opacity-50 hover:opacity-100"
+                            )}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="pt-4 flex gap-4">
@@ -264,12 +460,23 @@ export default function BanksPage() {
                onClick={() => {
                  setActiveModal(null);
                  setEditingBank(null);
+                 setCreateCreditCard(false);
                  setFormData({
                    name: '',
                    type: 'CHECKING',
                    initialBalance: 0,
                    color: '#BCF24B',
                    excludeFromAnalysis: false
+                 });
+                 setCardData({
+                   name: '',
+                   brand: 'Visa',
+                   lastFour: '',
+                   totalLimit: 0,
+                   closingDay: 1,
+                   dueDay: 10,
+                   color: '#BCF24B',
+                   notes: ''
                  });
                }} 
                className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"

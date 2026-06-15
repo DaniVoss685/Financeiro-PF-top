@@ -9,7 +9,7 @@ import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 
 export default function RecurringPage() {
-  const { transactions, categories, banks, goals, recurringHistory, addTransaction, updateTransaction, deleteTransaction, cloneRecurringHistory, addRecurringHistoryEntry } = useAppContext();
+  const { transactions, categories, banks, goals, recurringHistory, addTransaction, updateTransaction, deleteTransaction, cloneRecurringHistory, addRecurringHistoryEntry, defaultBankId } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');
   const [activeModal, setActiveModal] = useState<string | null>(null);
@@ -63,7 +63,7 @@ export default function RecurringPage() {
       amount: 0,
       type: activeTab,
       categoryId: categories.find(c => c.type === activeTab)?.id || '',
-      bankId: banks[0]?.id || '',
+      bankId: defaultBankId || banks[0]?.id || '',
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       competenceDate: format(new Date(), 'yyyy-MM-dd'),
       status: 'OPEN',
@@ -228,6 +228,32 @@ export default function RecurringPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* Sumário de Recorrências */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PremiumCard className="p-4 bg-red-500/[0.02] border-red-500/10 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Despesas Recorrentes</p>
+            <p className="text-xl font-bold font-mono text-red-400 mt-1">{formatCurrency(transactions.filter(t => t.isRecurring && t.type === 'EXPENSE').reduce((acc, t) => acc + t.amount, 0))}</p>
+          </div>
+          <div className="text-right">
+            <span className="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2.5 py-0.5 rounded-full font-bold">
+              {transactions.filter(t => t.isRecurring && t.type === 'EXPENSE').length} {transactions.filter(t => t.isRecurring && t.type === 'EXPENSE').length === 1 ? 'recorrência' : 'recorrências'}
+            </span>
+          </div>
+        </PremiumCard>
+        <PremiumCard className="p-4 bg-primary/[0.02] border-primary/10 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Receitas Recorrentes</p>
+            <p className="text-xl font-bold font-mono text-primary mt-1">{formatCurrency(transactions.filter(t => t.isRecurring && t.type === 'INCOME').reduce((acc, t) => acc + t.amount, 0))}</p>
+          </div>
+          <div className="text-right">
+            <span className="text-xs bg-primary/10 text-primary border border-primary/20 px-2.5 py-0.5 rounded-full font-bold">
+              {transactions.filter(t => t.isRecurring && t.type === 'INCOME').length} {transactions.filter(t => t.isRecurring && t.type === 'INCOME').length === 1 ? 'recorrência' : 'recorrências'}
+            </span>
+          </div>
+        </PremiumCard>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

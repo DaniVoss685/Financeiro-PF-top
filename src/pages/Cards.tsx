@@ -266,7 +266,7 @@ export default function CardsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6 md:gap-8">
         {creditCards.map(card => {
           const invoiceTotalMonth = currentInvoiceTotal(card.id);
-          const usedPct = (invoiceTotalMonth / card.totalLimit) * 100;
+          const usedPct = card.totalLimit > 0 ? (card.usedLimit / card.totalLimit) * 100 : 0;
           const cardTxs = getInvoiceTransactions(card.id, selectedMonth, selectedYear);
           
           return (
@@ -349,11 +349,16 @@ export default function CardsPage() {
                               <div className="flex items-center gap-2 truncate">
                                 <span className={cn("w-2 h-2 rounded-full hidden sm:block")} style={{ backgroundColor: cat?.color || '#888' }} />
                                 <span className={cn(
-                                  "text-xs font-medium truncate",
+                                  "text-xs font-medium truncate flex items-center gap-1.5",
                                   isPaid ? "text-muted-foreground/60 line-through decoration-emerald-500/40" : "text-foreground"
                                 )}>
                                   <span className="text-muted-foreground mr-1">Dia {format(parseISO(t.competenceDate || t.dueDate), "dd")}</span>
-                                  {t.description}
+                                  <span className="truncate">{t.description}</span>
+                                  {t.affectLimitImmediately === false && (
+                                    <span className="text-[8px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20 px-1 py-0.2 rounded shrink-0">
+                                      Agendado
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1.5 ml-2">
@@ -609,9 +614,18 @@ export default function CardsPage() {
                                     {cat && <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />}
                                   </div>
                                   <div className="flex flex-col">
-                                    <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                                    <span className="font-bold text-foreground text-sm flex items-center gap-1.5 flex-wrap">
                                       {t.description}
                                       {t.isInstallment && <span className="text-[10px] text-muted-foreground font-semibold italic bg-muted/40 px-1.5 py-0.5 rounded">({t.installmentCurrent}/{t.installmentTotal})</span>}
+                                      {t.affectLimitImmediately === false ? (
+                                        <span className="text-[9px] font-semibold bg-blue-500/10 text-blue-500 border border-blue-500/20 px-1.5 py-0.5 rounded-md" title="Não consome o limite imediatamente. Consome apenas na data de vencimento/débito.">
+                                          Débito Agendado
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-1.5 py-0.5 rounded-md" title="Consome o limite do cartão imediatamente.">
+                                          Utilizando Limite
+                                        </span>
+                                      )}
                                     </span>
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-[10px] text-muted-foreground mt-1">
                                       <span className="font-semibold text-primary">

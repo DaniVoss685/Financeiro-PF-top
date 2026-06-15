@@ -340,6 +340,7 @@ export default function TransactionsPage() {
     banks, 
     creditCards,
     goals,
+    defaultBankId,
     addTransaction, 
     updateTransaction, 
     deleteTransaction,
@@ -440,7 +441,7 @@ export default function TransactionsPage() {
     type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     categoryId: '',
     newCategoryName: '',
-    bankId: '',
+    bankId: defaultBankId || '',
     creditCardId: '',
     dueDate: format(new Date(), 'yyyy-MM-dd'),
     paymentDate: format(new Date(), 'yyyy-MM-dd'),
@@ -449,7 +450,8 @@ export default function TransactionsPage() {
     isInstallment: false,
     installmentCount: '1',
     installmentStart: '0',
-    linkedGoalId: ''
+    linkedGoalId: '',
+    affectLimitImmediately: true
   });
 
   // Income Sort State
@@ -664,7 +666,7 @@ export default function TransactionsPage() {
       type,
       categoryId: '',
       newCategoryName: '',
-      bankId: banks[0]?.id || '',
+      bankId: defaultBankId || banks[0]?.id || '',
       creditCardId: '',
       dueDate: format(new Date(), 'yyyy-MM-dd'),
       paymentDate: format(new Date(), 'yyyy-MM-dd'),
@@ -696,7 +698,8 @@ export default function TransactionsPage() {
       isInstallment: t.isInstallment,
       installmentCount: t.installmentTotal?.toString() || '1',
       installmentStart: t.installmentCurrent?.toString() || '1',
-      linkedGoalId: t.linkedGoalId || ''
+      linkedGoalId: t.linkedGoalId || '',
+      affectLimitImmediately: t.affectLimitImmediately !== false
     });
     setActiveModal('new_transaction');
   };
@@ -759,6 +762,7 @@ export default function TransactionsPage() {
       installmentTotal: formData.isInstallment ? Number(formData.installmentCount) : undefined,
       installmentCurrent: formData.isInstallment ? (editingTransaction?.installmentCurrent || 1) : undefined,
       linkedGoalId: formData.linkedGoalId || undefined,
+      affectLimitImmediately: formData.affectLimitImmediately !== false
     };
 
     if (editingTransaction) {
@@ -1117,12 +1121,38 @@ export default function TransactionsPage() {
                 onChange={val => setFormData({...formData, categoryId: val})}
               />
               {formData.type === 'EXPENSE' ? (
-                <PremiumSelect 
-                  label="Cartão de Crédito"
-                  options={[{ value: '', label: 'Nenhum' }, ...cardOptions]}
-                  value={formData.creditCardId || ''}
-                  onChange={handleCardChange}
-                />
+                <div className="space-y-4">
+                  <PremiumSelect 
+                    label="Cartão de Crédito"
+                    options={[{ value: '', label: 'Nenhum' }, ...cardOptions]}
+                    value={formData.creditCardId || ''}
+                    onChange={handleCardChange}
+                  />
+                  {formData.creditCardId && (
+                    <div 
+                      className="flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none animate-in fade-in slide-in-from-top-1 duration-200"
+                      onClick={() => setFormData(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
+                    >
+                      <div className="flex flex-col pr-2">
+                        <span className="text-xs font-semibold text-foreground/90">Bloquear limite total imediatamente</span>
+                        <span className="text-[10px] text-muted-foreground mt-0.5">
+                          {formData.affectLimitImmediately !== false 
+                            ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
+                            : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
+                        </span>
+                      </div>
+                      <div className={cn(
+                        "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                        formData.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
+                      )}>
+                        <div className={cn(
+                          "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                          formData.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
+                        )} />
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : <div />}
             </div>
 

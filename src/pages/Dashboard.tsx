@@ -74,7 +74,8 @@ export default function DashboardPage() {
     transactions, addTransaction, updateTransaction, deleteTransaction, 
     excludeRecurringMonth, categories, addCategory, banks, goals, 
     creditCards, notifications, markTransactionAsPaid,
-    reminders, addReminder, deleteReminder, completeReminder
+    reminders, addReminder, deleteReminder, completeReminder,
+    defaultBankId
   } = useAppContext();
 
   const overdueExpenses = notifications.filter(n => n.type === 'OVERDUE' && !n.isIncome);
@@ -125,7 +126,8 @@ export default function DashboardPage() {
       isInstallment: t.isInstallment || false,
       installmentCount: t.installmentTotal?.toString() || '1',
       installmentStart: t.installmentCurrent?.toString() || '1',
-      linkedGoalId: t.linkedGoalId || ''
+      linkedGoalId: t.linkedGoalId || '',
+      affectLimitImmediately: t.affectLimitImmediately !== false
     });
 
     if (t.type === 'INCOME') {
@@ -197,7 +199,7 @@ export default function DashboardPage() {
     type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     categoryId: '',
     newCategoryName: '',
-    bankId: '',
+    bankId: defaultBankId || '',
     creditCardId: '',
     isPaid: true,
     isPartial: false,
@@ -207,7 +209,8 @@ export default function DashboardPage() {
     isInstallment: false,
     installmentCount: '1',
     installmentStart: '0',
-    linkedGoalId: ''
+    linkedGoalId: '',
+    affectLimitImmediately: true
   });
 
   const [newReminder, setNewReminder] = useState({
@@ -289,7 +292,8 @@ export default function DashboardPage() {
       status: newTx.isPaid ? (type === 'INCOME' ? 'RECEIVED' : 'PAID') : 'OPEN' as any,
       isRecurring: newTx.isRecurring,
       isPartial: newTx.isPartial,
-      linkedGoalId: newTx.linkedGoalId || undefined
+      linkedGoalId: newTx.linkedGoalId || undefined,
+      affectLimitImmediately: newTx.affectLimitImmediately !== false
     };
 
     if (editingTransaction) {
@@ -429,7 +433,7 @@ export default function DashboardPage() {
       type: 'EXPENSE', 
       categoryId: '', 
       newCategoryName: '',
-      bankId: '', 
+      bankId: defaultBankId || '', 
       creditCardId: '',
       isPaid: true,
       isPartial: false,
@@ -439,7 +443,8 @@ export default function DashboardPage() {
       isInstallment: false,
       installmentCount: '1',
       installmentStart: '0',
-      linkedGoalId: ''
+      linkedGoalId: '',
+      affectLimitImmediately: true
     });
   };
 
@@ -755,12 +760,38 @@ export default function DashboardPage() {
               ]}
             />
             {activeModal === 'new_transaction_expense' ? (
-              <PremiumSelect 
-                label="Cartão de Crédito"
-                value={newTx.creditCardId || ''}
-                onChange={handleCardChange}
-                options={[{ value: '', label: 'Nenhum' }, ...creditCards.map(cc => ({ value: cc.id, label: cc.name, color: cc.color }))]}
-              />
+              <div className="space-y-4">
+                <PremiumSelect 
+                  label="Cartão de Crédito"
+                  value={newTx.creditCardId || ''}
+                  onChange={handleCardChange}
+                  options={[{ value: '', label: 'Nenhum' }, ...creditCards.map(cc => ({ value: cc.id, label: cc.name, color: cc.color }))]}
+                />
+                {newTx.creditCardId && (
+                  <div 
+                    className="flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none animate-in fade-in slide-in-from-top-1 duration-200"
+                    onClick={() => setNewTx(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
+                  >
+                    <div className="flex flex-col pr-2">
+                      <span className="text-xs font-semibold text-foreground/90">Bloquear limite total imediatamente</span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">
+                        {newTx.affectLimitImmediately !== false 
+                          ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
+                          : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
+                      </span>
+                    </div>
+                    <div className={cn(
+                      "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                      newTx.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
+                    )}>
+                      <div className={cn(
+                        "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                        newTx.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
+                      )} />
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : <div />}
           </div>
 

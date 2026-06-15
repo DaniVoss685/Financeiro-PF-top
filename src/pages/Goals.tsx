@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useAppContext, Goal } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { formatCurrency, cn } from '../lib/utils';
-import { Plus, Target, TrendingUp, AlertTriangle, CheckCircle2, Trash2, Edit2, Wallet, LayoutGrid, AlertCircle, Plane, ShoppingBag, Car, Home } from 'lucide-react';
+import { Plus, Target, TrendingUp, AlertTriangle, CheckCircle2, Trash2, Edit2, Wallet, LayoutGrid, AlertCircle, Plane, ShoppingBag, Car, Home, Minus } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumDatePicker, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 import { motion } from 'motion/react';
 
-const GoalCard = ({ goal, onEdit, onDelete, onAddFunds, transactions }: { goal: Goal, onEdit: (goal: Goal) => void, onDelete: (id: string) => void, onAddFunds: (goal: Goal) => void, transactions: any[], key?: any }) => {
+const GoalCard = ({ goal, onEdit, onDelete, onAddFunds, onWithdrawFunds, transactions }: { goal: Goal, onEdit: (goal: Goal) => void, onDelete: (id: string) => void, onAddFunds: (goal: Goal) => void, onWithdrawFunds: (goal: Goal) => void, transactions: any[], key?: any }) => {
   const calculateGoalProgress = (goal: Goal) => {
     if (goal.type === 'SPENDING_LIMIT' && goal.categoryId) {
       const now = new Date();
@@ -140,16 +141,24 @@ const GoalCard = ({ goal, onEdit, onDelete, onAddFunds, transactions }: { goal: 
               <Trash2 className="w-4 h-4" />
             </button>
             {goal.type === 'SAVINGS' && (
-              <button 
-                onClick={() => onAddFunds(goal)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-semibold transition-all"
-              >
-                <Plus className="w-3 h-3" /> Alocar
-              </button>
+              <div className="flex gap-1.5">
+                <button 
+                  onClick={() => onAddFunds(goal)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" /> Alocar
+                </button>
+                <button 
+                  onClick={() => onWithdrawFunds(goal)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-450 rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
+                >
+                  <Minus className="w-3 h-3" /> Retirar
+                </button>
+              </div>
             )}
           </div>
           <p className="text-[10px] text-muted-foreground font-medium italic">
-            Prazo: {goal.deadlineDate ? format(parseISO(goal.deadlineDate), "dd MMM yyyy") : '---'}
+            Prazo: {goal.deadlineDate ? format(parseISO(goal.deadlineDate), "dd MMM yyyy", { locale: ptBR }) : '---'}
           </p>
         </div>
       </PremiumCard>
@@ -162,6 +171,7 @@ export default function GoalsPage() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [goalToAddFunds, setGoalToAddFunds] = useState<Goal | null>(null);
+  const [goalToWithdrawFunds, setGoalToWithdrawFunds] = useState<Goal | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
   
@@ -177,6 +187,7 @@ export default function GoalsPage() {
   });
 
   const [fundAmount, setFundAmount] = useState(0);
+  const [deductFromBank, setDeductFromBank] = useState(true);
 
   const getBank = (id?: string) => banks.find(b => b.id === id);
   const bankOptions = banks.map(b => ({ value: b.id, label: b.name, color: b.color }));
@@ -191,7 +202,7 @@ export default function GoalsPage() {
       currentAmount: goalToAddFunds.currentAmount + amount
     });
 
-    if (goalToAddFunds.bankId) {
+    if (deductFromBank && goalToAddFunds.bankId) {
       addTransaction({
         type: 'EXPENSE',
         description: `Alocação meta: ${goalToAddFunds.name}`,
@@ -209,6 +220,37 @@ export default function GoalsPage() {
 
     setFundAmount(0);
     setGoalToAddFunds(null);
+    setActiveModal(null);
+  };
+
+  const handleWithdrawFunds = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!goalToWithdrawFunds || !fundAmount) return;
+
+    const amount = fundAmount;
+    const newAmount = Math.max(0, goalToWithdrawFunds.currentAmount - amount);
+    updateGoal(goalToWithdrawFunds.id, {
+      currentAmount: newAmount
+    });
+
+    if (deductFromBank && goalToWithdrawFunds.bankId) {
+      addTransaction({
+        type: 'INCOME',
+        description: `Resgate meta: ${goalToWithdrawFunds.name}`,
+        amount,
+        bankId: goalToWithdrawFunds.bankId,
+        categoryId: 'cat-savings-link',
+        competenceDate: new Date().toISOString(),
+        dueDate: new Date().toISOString(),
+        paymentDate: new Date().toISOString(),
+        status: 'RECEIVED',
+        isRecurring: false,
+        isInstallment: false
+      });
+    }
+
+    setFundAmount(0);
+    setGoalToWithdrawFunds(null);
     setActiveModal(null);
   };
 
@@ -312,7 +354,13 @@ export default function GoalsPage() {
             onDelete={(id) => setDeletingGoalId(id)} 
             onAddFunds={(g) => {
               setGoalToAddFunds(g);
+              setDeductFromBank(true);
               setActiveModal('add_funds');
+            }}
+            onWithdrawFunds={(g) => {
+              setGoalToWithdrawFunds(g);
+              setDeductFromBank(true);
+              setActiveModal('withdraw_funds');
             }}
             transactions={transactions}
           />
@@ -333,19 +381,124 @@ export default function GoalsPage() {
         title={`Alocar para: ${goalToAddFunds?.name}`}
       >
         <form onSubmit={handleAddFunds} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-muted-foreground ml-1 tracking-widest uppercase">Modalidade do Aporte</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeductFromBank(true)}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                  deductFromBank 
+                    ? "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/10" 
+                    : "bg-muted/20 border-border/50 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                Deduzir do Banco
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeductFromBank(false)}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                  !deductFromBank 
+                    ? "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/10" 
+                    : "bg-muted/20 border-border/50 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                Ajustar Meta Apenas
+              </button>
+            </div>
+          </div>
+
           <div className="p-4 bg-primary/5 border border-primary/20 rounded-2xl">
             <p className="text-xs text-muted-foreground text-center">
-              Este valor será deduzido da conta {getBank(goalToAddFunds?.bankId)?.name || 'selecionada'} para ser contabilizado nesta meta de reserva.
+              {deductFromBank 
+                ? `Este valor será retirado da conta "${getBank(goalToAddFunds?.bankId)?.name || 'selecionada'}" e gerará um lançamento de despesa.`
+                : "Este valor será adicionado ao progresso da meta sem afetar nenhuma conta bancária."
+              }
             </p>
           </div>
-              <PremiumCurrencyInput 
-                label="Valor do Aporte"
-                value={fundAmount}
-                onChange={val => setFundAmount(val)}
-              />
+
+          <PremiumCurrencyInput 
+            label="Valor do Aporte"
+            value={fundAmount}
+            onChange={val => setFundAmount(val)}
+          />
+
           <div className="pt-4 flex gap-4">
-             <button type="button" onClick={() => setActiveModal(null)} className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground">Cancelar</button>
+             <button type="button" onClick={() => {
+               setActiveModal(null);
+               setFundAmount(0);
+               setGoalToAddFunds(null);
+             }} className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground">Cancelar</button>
              <button type="submit" className="flex-1 bg-primary text-primary-foreground py-4 rounded-2xl text-[10px] font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">Confirmar Aporte</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal 
+        isOpen={activeModal === 'withdraw_funds'} 
+        onClose={() => {
+          setActiveModal(null);
+          setFundAmount(0);
+          setGoalToWithdrawFunds(null);
+        }} 
+        title={`Retirar de: ${goalToWithdrawFunds?.name}`}
+      >
+        <form onSubmit={handleWithdrawFunds} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-muted-foreground ml-1 tracking-widest uppercase">Destino da Retirada</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeductFromBank(true)}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                  deductFromBank 
+                    ? "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/10" 
+                    : "bg-muted/20 border-border/50 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                Enviar para o Banco
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeductFromBank(false)}
+                className={cn(
+                  "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                  !deductFromBank 
+                    ? "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/10" 
+                    : "bg-muted/20 border-border/50 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                Ajustar Meta Apenas
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 bg-rose-500/[0.03] border border-rose-500/20 rounded-2xl">
+            <p className="text-xs text-muted-foreground text-center">
+              {deductFromBank 
+                ? `Este valor será somado à conta "${getBank(goalToWithdrawFunds?.bankId)?.name || 'selecionada'}" e gerará um lançamento de receita.`
+                : "Este valor será deduzido do progresso da meta sem afetar nenhuma conta bancária."
+              }
+            </p>
+          </div>
+
+          <PremiumCurrencyInput 
+            label="Valor da Retirada"
+            value={fundAmount}
+            onChange={val => setFundAmount(val)}
+          />
+
+          <div className="pt-4 flex gap-4">
+             <button type="button" onClick={() => {
+               setActiveModal(null);
+               setFundAmount(0);
+               setGoalToWithdrawFunds(null);
+             }} className="flex-1 py-4 border border-border rounded-2xl text-[10px] font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground">Cancelar</button>
+             <button type="submit" className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-4 rounded-2xl text-[10px] font-bold shadow-lg shadow-rose-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase tracking-widest">Confirmar Retirada</button>
           </div>
         </form>
       </Modal>

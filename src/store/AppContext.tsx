@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../lib/supabaseClient';
 import { format } from 'date-fns';
@@ -65,6 +65,7 @@ export interface Transaction {
   installmentCurrent?: number;
   recurringExclusions?: string[]; // Array of "YYYY-MM"
   linkedGoalId?: string;
+  affectLimitImmediately?: boolean;
 }
 
 export interface Goal {
@@ -118,9 +119,11 @@ interface AppState {
   transactions: Transaction[];
   goals: Goal[];
   recurringHistory: RecurringHistory[];
+  defaultBankId: string | null;
+  setDefaultBank: (bankId: string | null) => Promise<void>;
   toggleTheme: () => void;
   // Actions
-  addBank: (bank: Omit<Bank, 'id'>) => Promise<void>;
+  addBank: (bank: Omit<Bank, 'id'>, creditCardDetails?: Omit<CreditCard, 'id' | 'bankId' | 'availableLimit' | 'usedLimit'>) => Promise<void>;
   updateBank: (id: string, bank: Partial<Bank>) => Promise<void>;
   deleteBank: (id: string) => Promise<void>;
   addTransaction: (transaction: Omit<Transaction, 'id'>) => string;
@@ -193,6 +196,7 @@ const AppContext = createContext<AppState | undefined>(undefined);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [defaultBankId, setDefaultBankId] = useState<string | null>(null);
 
   // States per user
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -205,6 +209,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Track state loading
   const [isLoaded, setIsLoaded] = useState(false);
+
+  const creditCardsRef = useRef<CreditCard[]>([]);
+  const transactionsRef = useRef<Transaction[]>([]);
+
+  useEffect(() => {
+    creditCardsRef.current = creditCards;
+  }, [creditCards]);
+
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
 
   // Listen to Supabase Session changes on mount
   useEffect(() => {
@@ -253,6 +268,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error('Error setting profile state:', e);
     }
   };
+
+  const syncCreditCardLimits = async (
+    currentTransactions?: Transaction[],
+    currentCards?: CreditCard[]
+  ) => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const txsToProcess = currentTransactions || transactionsRef.current;
+    const cardsToProcess = currentCards || creditCardsRef.current;
+
+    const updatedCards = cardsToProcess.map(card => {
+      const cardExpenses = txsToProcess.filter(t => 
+        t.type === 'EXPENSE' &&
+        t.creditCardId === card.id &&
+        t.status === 'OPEN' &&
+        (t.affectLimitImmediately !== false || (t.dueDate ? t.dueDate.substring(0, 10) <= todayStr : true))
+      );
+
+      const newUsedLimit = cardExpenses.reduce((sum, t) => sum + t.amount, 0);
+      const newAvailableLimit = card.totalLimit - newUsedLimit;
+
+      return {
+        ...card,
+        usedLimit: newUsedLimit,
+        availableLimit: newAvailableLimit
+      };
+    });
+
+    setCreditCards(updatedCards);
+
+    await Promise.all(
+      updatedCards.map(async (card) => {
+        const { error } = await supabase
+          .from('credit_cards')
+          .update({
+            used_limit: card.usedLimit,
+            available_limit: card.availableLimit
+          })
+          .eq('id', card.id);
+
+        if (error) {
+          console.error(`Error syncing limits for card ${card.name} (${card.id}):`, error);
+        }
+      })
+    );
+  };
+
 
   // Seed default data for first-time users
   const seedDefaultDataForUser = async (uId: string) => {
@@ -406,7 +467,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               excludeFromAnalysis: !!b.exclude_from_analysis
             })));
 
-            setCreditCards((dbCards || []).map(c => ({
+            const mappedCards = (dbCards || []).map(c => ({
               id: c.id,
               name: c.name,
               bankId: c.bank_id,
@@ -419,7 +480,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               dueDay: c.due_day,
               color: c.color,
               notes: c.notes
-            })));
+            }));
+            setCreditCards(mappedCards);
 
             // Obter as customizações das categorias padrão com parsing robusto (caso venha como string JSON do banco)
             const userSettingsRow = dbUserSettings && dbUserSettings.length > 0 ? dbUserSettings[0] : null;
@@ -433,6 +495,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
             const customizations = settingsObj?.category_customizations || {};
+            const defBankId = settingsObj?.default_bank_id || null;
+            setDefaultBankId(defBankId);
 
             // Merge local mocks with DB categories to ensure defaults are always available, prioritizing DB values and applying customizations
             const dbCatIds = new Set((dbCategories || []).map(dbc => dbc.id));
@@ -469,7 +533,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
             setCategories(mergedCategories);
 
-            setTransactions((dbTransactions || []).map(t => ({
+            const mappedTransactions = (dbTransactions || []).map(t => ({
               id: t.id,
               type: t.type,
               description: t.description,
@@ -489,8 +553,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               installmentTotal: t.installment_total,
               installmentCurrent: t.installment_current,
               recurringExclusions: t.recurring_exclusions || [],
-              linkedGoalId: t.linked_goal_id
-            })));
+              linkedGoalId: t.linked_goal_id,
+              affectLimitImmediately: t.affect_limit_immediately !== false
+            }));
+            setTransactions(mappedTransactions);
 
             setGoals((dbGoals || []).map(g => ({
               id: g.id,
@@ -525,6 +591,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               effectiveFrom: rh.effective_from,
               createdAt: rh.created_at
             })));
+
+            // Sincronizar limites dos cartões de crédito declarativamente baseando-se na data atual
+            syncCreditCardLimits(mappedTransactions, mappedCards);
           }
 
         } catch (e) {
@@ -615,7 +684,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  const addBank = async (bank: Omit<Bank, 'id'>) => {
+  const addBank = async (
+    bank: Omit<Bank, 'id'>,
+    creditCardDetails?: Omit<CreditCard, 'id' | 'bankId' | 'availableLimit' | 'usedLimit'>
+  ) => {
     if (!currentUser) return;
     const newId = uuidv4();
     const newBank = { ...bank, id: newId };
@@ -633,6 +705,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       icon: bank.icon,
       exclude_from_analysis: bank.excludeFromAnalysis || false
     });
+
+    if (creditCardDetails) {
+      const cardId = uuidv4();
+      const newCard: CreditCard = {
+        ...creditCardDetails,
+        id: cardId,
+        bankId: newId,
+        usedLimit: 0,
+        availableLimit: creditCardDetails.totalLimit
+      };
+      setCreditCards(prev => [...prev, newCard]);
+
+      await supabase.from('credit_cards').insert({
+        id: cardId,
+        user_id: currentUser.id,
+        bank_id: newId,
+        name: creditCardDetails.name,
+        brand: creditCardDetails.brand,
+        last_four: creditCardDetails.lastFour,
+        total_limit: creditCardDetails.totalLimit,
+        used_limit: 0,
+        available_limit: creditCardDetails.totalLimit,
+        closing_day: creditCardDetails.closingDay,
+        due_day: creditCardDetails.dueDay,
+        color: creditCardDetails.color,
+        notes: creditCardDetails.notes
+      });
+    }
   };
 
   const updateBank = async (id: string, updates: Partial<Bank>) => {
@@ -700,27 +800,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
     }
 
-    // Update credit card limit if it's an expense on a card
-    if (t.type === 'EXPENSE' && t.creditCardId) {
-      setCreditCards(prev => prev.map(card => {
-        if (card.id === t.creditCardId) {
-          const updatedUsed = card.usedLimit + t.amount;
-          const updatedAvail = card.availableLimit - t.amount;
-
-          supabase.from('credit_cards').update({
-            used_limit: updatedUsed,
-            available_limit: updatedAvail
-          }).eq('id', card.id).then();
-
-          return {
-            ...card,
-            usedLimit: updatedUsed,
-            availableLimit: updatedAvail
-          };
-        }
-        return card;
-      }));
-    }
+    // Sincronizar limites dos cartões de crédito declarativamente
+    syncCreditCardLimits([...transactions, newTransaction]);
 
     // Update goal if it's already paid and linked
     if (t.linkedGoalId && t.type === 'EXPENSE' && (t.status === 'PAID' || t.status === 'RECEIVED')) {
@@ -777,7 +858,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       installment_total: t.installmentTotal,
       installment_current: t.installmentCurrent,
       recurring_exclusions: t.recurringExclusions || [],
-      linked_goal_id: t.linkedGoalId
+      linked_goal_id: t.linkedGoalId,
+      affect_limit_immediately: t.affectLimitImmediately !== false
     }).then(async () => {
       if (t.isRecurring) {
         addRecurringHistoryEntry(newId, t.amount, t.competenceDate.substring(0, 7));
@@ -788,206 +870,186 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateTransaction = async (id: string, updates: Partial<Transaction>) => {
-    setTransactions(prev => prev.map(t => {
-      if (t.id === id) {
-        // Handle credit card limit updates
-        if (t.type === 'EXPENSE' || updates.type === 'EXPENSE') {
-          const oldCardId = t.creditCardId;
-          const newCardId = updates.creditCardId !== undefined ? updates.creditCardId : oldCardId;
-          const oldAmount = t.amount;
-          const newAmount = updates.amount !== undefined ? updates.amount : oldAmount;
+    const t = transactions.find(tx => tx.id === id);
+    if (!t) return;
 
-          if (oldCardId || newCardId) {
-            setCreditCards(prevCards => prevCards.map(card => {
-              let updatedCard = { ...card };
-              if (card.id === oldCardId) {
-                updatedCard.usedLimit -= oldAmount;
-                updatedCard.availableLimit += oldAmount;
+    // Reverse old balance impact if status changed
+    const oldPaid = t.status === 'PAID' || t.status === 'RECEIVED';
+    const newPaid = updates.status === 'PAID' || updates.status === 'RECEIVED' || (updates.status === undefined && oldPaid);
+
+    if (oldPaid && !newPaid) {
+      setBanks(prevBanks => prevBanks.map(bank => {
+        if (bank.id === t.bankId) {
+          const amount = t.type === 'INCOME' ? -t.amount : t.amount;
+          const updatedBal = bank.currentBalance + amount;
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          return { ...bank, currentBalance: updatedBal };
+        }
+        return bank;
+      }));
+    } else if (!oldPaid && newPaid) {
+      setBanks(prevBanks => prevBanks.map(bank => {
+        if (bank.id === (updates.bankId || t.bankId)) {
+          const amount = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
+          const updatedBal = bank.currentBalance + amount;
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          return { ...bank, currentBalance: updatedBal };
+        }
+        return bank;
+      }));
+    } else if (oldPaid && newPaid) {
+      setBanks(prevBanks => prevBanks.map(bank => {
+        if (bank.id === (updates.bankId || t.bankId) && bank.id === t.bankId) {
+          const oldAmt = t.type === 'INCOME' ? t.amount : -t.amount;
+          const newAmt = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
+          const updatedBal = bank.currentBalance - oldAmt + newAmt;
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          return { ...bank, currentBalance: updatedBal };
+        }
+        if (updates.bankId && updates.bankId !== t.bankId) {
+            if (bank.id === t.bankId) {
+                const updatedBal = bank.currentBalance - (t.type === 'INCOME' ? t.amount : -t.amount);
+                supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+                return { ...bank, currentBalance: updatedBal };
+            }
+            if (bank.id === updates.bankId) {
+                const updatedBal = bank.currentBalance + ((updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount));
+                supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+                return { ...bank, currentBalance: updatedBal };
+            }
+        }
+        return bank;
+      }));
+    }
+
+    // Reconciliação inteligente com metas na atualização da transação
+    const oldGoalId = t.linkedGoalId;
+    const newGoalId = updates.linkedGoalId !== undefined ? updates.linkedGoalId : oldGoalId;
+    const oldAmount = t.amount;
+    const newAmount = updates.amount !== undefined ? updates.amount : oldAmount;
+    const isExpense = (updates.type || t.type) === 'EXPENSE';
+
+    if (isExpense) {
+      if (!oldPaid && newPaid) {
+        if (newGoalId) {
+          setGoals(prev => prev.map(g => {
+            if (g.id === newGoalId) {
+              const updatedAmt = g.currentAmount + newAmount;
+              supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+              return { ...g, currentAmount: updatedAmt };
+            }
+            return g;
+          }));
+        }
+      } else if (oldPaid && !newPaid) {
+        if (oldGoalId) {
+          setGoals(prev => prev.map(g => {
+            if (g.id === oldGoalId) {
+              const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
+              supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+              return { ...g, currentAmount: updatedAmt };
+            }
+            return g;
+          }));
+        }
+      } else if (oldPaid && newPaid) {
+        if (oldGoalId !== newGoalId) {
+          if (oldGoalId) {
+            setGoals(prev => prev.map(g => {
+              if (g.id === oldGoalId) {
+                const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
+                supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                return { ...g, currentAmount: updatedAmt };
               }
-              if (card.id === newCardId) {
-                updatedCard.usedLimit += newAmount;
-                updatedCard.availableLimit -= newAmount;
-              }
-
-              supabase.from('credit_cards').update({
-                used_limit: updatedCard.usedLimit,
-                available_limit: updatedCard.availableLimit
-              }).eq('id', card.id).then();
-
-              return updatedCard;
+              return g;
             }));
           }
-        }
-
-        // Reverse old balance impact if status changed
-        const oldPaid = t.status === 'PAID' || t.status === 'RECEIVED';
-        const newPaid = updates.status === 'PAID' || updates.status === 'RECEIVED' || (updates.status === undefined && oldPaid);
-
-        if (oldPaid && !newPaid) {
-          setBanks(prevBanks => prevBanks.map(bank => {
-            if (bank.id === t.bankId) {
-              const amount = t.type === 'INCOME' ? -t.amount : t.amount;
-              const updatedBal = bank.currentBalance + amount;
-              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-              return { ...bank, currentBalance: updatedBal };
-            }
-            return bank;
-          }));
-        } else if (!oldPaid && newPaid) {
-          setBanks(prevBanks => prevBanks.map(bank => {
-            if (bank.id === (updates.bankId || t.bankId)) {
-              const amount = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
-              const updatedBal = bank.currentBalance + amount;
-              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-              return { ...bank, currentBalance: updatedBal };
-            }
-            return bank;
-          }));
-        } else if (oldPaid && newPaid) {
-          setBanks(prevBanks => prevBanks.map(bank => {
-            if (bank.id === (updates.bankId || t.bankId) && bank.id === t.bankId) {
-              const oldAmt = t.type === 'INCOME' ? t.amount : -t.amount;
-              const newAmt = (updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount);
-              const updatedBal = bank.currentBalance - oldAmt + newAmt;
-              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-              return { ...bank, currentBalance: updatedBal };
-            }
-            if (updates.bankId && updates.bankId !== t.bankId) {
-                if (bank.id === t.bankId) {
-                    const updatedBal = bank.currentBalance - (t.type === 'INCOME' ? t.amount : -t.amount);
-                    supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-                    return { ...bank, currentBalance: updatedBal };
-                }
-                if (bank.id === updates.bankId) {
-                    const updatedBal = bank.currentBalance + ((updates.type || t.type) === 'INCOME' ? (updates.amount || t.amount) : -(updates.amount || t.amount));
-                    supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-                    return { ...bank, currentBalance: updatedBal };
-                }
-            }
-            return bank;
-          }));
-        }
-
-        // Reconciliação inteligente com metas na atualização da transação
-        const oldGoalId = t.linkedGoalId;
-        const newGoalId = updates.linkedGoalId !== undefined ? updates.linkedGoalId : oldGoalId;
-        const oldAmount = t.amount;
-        const newAmount = updates.amount !== undefined ? updates.amount : oldAmount;
-        const isExpense = (updates.type || t.type) === 'EXPENSE';
-
-        if (isExpense) {
-          if (!oldPaid && newPaid) {
-            if (newGoalId) {
-              setGoals(prev => prev.map(g => {
-                if (g.id === newGoalId) {
-                  const updatedAmt = g.currentAmount + newAmount;
-                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
-                  return { ...g, currentAmount: updatedAmt };
-                }
-                return g;
-              }));
-            }
-          } else if (oldPaid && !newPaid) {
-            if (oldGoalId) {
-              setGoals(prev => prev.map(g => {
-                if (g.id === oldGoalId) {
-                  const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
-                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
-                  return { ...g, currentAmount: updatedAmt };
-                }
-                return g;
-              }));
-            }
-          } else if (oldPaid && newPaid) {
-            if (oldGoalId !== newGoalId) {
-              if (oldGoalId) {
-                setGoals(prev => prev.map(g => {
-                  if (g.id === oldGoalId) {
-                    const updatedAmt = Math.max(0, g.currentAmount - oldAmount);
-                    supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
-                    return { ...g, currentAmount: updatedAmt };
-                  }
-                  return g;
-                }));
+          if (newGoalId) {
+            setGoals(prev => prev.map(g => {
+              if (g.id === newGoalId) {
+                const updatedAmt = g.currentAmount + newAmount;
+                supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+                return { ...g, currentAmount: updatedAmt };
               }
-              if (newGoalId) {
-                setGoals(prev => prev.map(g => {
-                  if (g.id === newGoalId) {
-                    const updatedAmt = g.currentAmount + newAmount;
-                    supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
-                    return { ...g, currentAmount: updatedAmt };
-                  }
-                  return g;
-                }));
-              }
-            } else if (newGoalId && oldAmount !== newAmount) {
-              setGoals(prev => prev.map(g => {
-                if (g.id === newGoalId) {
-                  const updatedAmt = Math.max(0, g.currentAmount - oldAmount + newAmount);
-                  supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
-                  return { ...g, currentAmount: updatedAmt };
-                }
-                return g;
-              }));
+              return g;
+            }));
+          }
+        } else if (newGoalId && oldAmount !== newAmount) {
+          setGoals(prev => prev.map(g => {
+            if (g.id === newGoalId) {
+              const updatedAmt = Math.max(0, g.currentAmount - oldAmount + newAmount);
+              supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', g.id).then();
+              return { ...g, currentAmount: updatedAmt };
             }
-          }
+            return g;
+          }));
         }
-
-        // Histórico de valores da recorrência se houver alteração
-        const isRec = updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring;
-        if (isRec && updates.amount !== undefined && updates.amount !== t.amount) {
-          addRecurringHistoryEntry(id, updates.amount, (updates.competenceDate || t.competenceDate).substring(0, 7));
-        }
-
-        // Atualização e conclusão de lembretes vinculados
-        if (!oldPaid && newPaid) {
-          const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
-          if (related) {
-            completeReminder(related.id);
-          }
-        }
-
-        const finalCreditCardId = updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId;
-
-        if (finalCreditCardId) {
-          // Remover lembrete ativo se a transação passou a ter ou já tem cartão de crédito vinculado
-          const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
-          if (related) {
-            deleteReminder(related.id);
-          }
-        } else if (updates.dueDate && updates.dueDate !== t.dueDate) {
-          const related = reminders.find(r => r.transactionId === id);
-          if (related) {
-            updateReminder(related.id, { dueDate: updates.dueDate });
-          }
-        }
-
-        // Save actual updates to Supabase
-        supabase.from('transactions').update({
-          type: updates.type || t.type,
-          description: updates.description || t.description,
-          amount: updates.amount !== undefined ? updates.amount : t.amount,
-          category_id: updates.categoryId || t.categoryId,
-          bank_id: updates.bankId !== undefined ? updates.bankId : t.bankId,
-          credit_card_id: updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId,
-          competence_date: updates.competenceDate || t.competenceDate,
-          due_date: updates.dueDate || t.dueDate,
-          payment_date: updates.paymentDate !== undefined ? updates.paymentDate : t.paymentDate,
-          status: updates.status || t.status,
-          is_recurring: updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring,
-          is_installment: updates.isInstallment !== undefined ? updates.isInstallment : t.isInstallment,
-          is_partial: updates.isPartial !== undefined ? updates.isPartial : t.isPartial,
-          notes: updates.notes !== undefined ? updates.notes : t.notes,
-          installment_total: updates.installmentTotal !== undefined ? updates.installmentTotal : t.installmentTotal,
-          installment_current: updates.installmentCurrent !== undefined ? updates.installmentCurrent : t.installmentCurrent,
-          recurring_exclusions: updates.recurringExclusions || t.recurringExclusions,
-          linked_goal_id: updates.linkedGoalId !== undefined ? updates.linkedGoalId : t.linkedGoalId
-        }).eq('id', id).then();
-
-        return { ...t, ...updates };
       }
-      return t;
-    }));
+    }
+
+    // Histórico de valores da recorrência se houver alteração
+    const isRec = updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring;
+    if (isRec && updates.amount !== undefined && updates.amount !== t.amount) {
+      addRecurringHistoryEntry(id, updates.amount, (updates.competenceDate || t.competenceDate).substring(0, 7));
+    }
+
+    // Atualização e conclusão de lembretes vinculados
+    if (!oldPaid && newPaid) {
+      const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
+      if (related) {
+        completeReminder(related.id);
+      }
+    }
+
+    const finalCreditCardId = updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId;
+
+    if (finalCreditCardId) {
+      // Remover lembrete ativo se a transação passou a ter ou já tem cartão de crédito vinculado
+      const related = reminders.find(r => r.transactionId === id && !r.isCompleted);
+      if (related) {
+        deleteReminder(related.id);
+      }
+    } else if (updates.dueDate && updates.dueDate !== t.dueDate) {
+      const related = reminders.find(r => r.transactionId === id);
+      if (related) {
+        updateReminder(related.id, { dueDate: updates.dueDate });
+      }
+    }
+
+    // Save actual updates to Supabase
+    supabase.from('transactions').update({
+      type: updates.type || t.type,
+      description: updates.description || t.description,
+      amount: updates.amount !== undefined ? updates.amount : t.amount,
+      category_id: updates.categoryId || t.categoryId,
+      bank_id: updates.bankId !== undefined ? updates.bankId : t.bankId,
+      credit_card_id: updates.creditCardId !== undefined ? updates.creditCardId : t.creditCardId,
+      competence_date: updates.competenceDate || t.competenceDate,
+      due_date: updates.dueDate || t.dueDate,
+      payment_date: updates.paymentDate !== undefined ? updates.paymentDate : t.paymentDate,
+      status: updates.status || t.status,
+      is_recurring: updates.isRecurring !== undefined ? updates.isRecurring : t.isRecurring,
+      is_installment: updates.isInstallment !== undefined ? updates.isInstallment : t.isInstallment,
+      is_partial: updates.isPartial !== undefined ? updates.isPartial : t.isPartial,
+      notes: updates.notes !== undefined ? updates.notes : t.notes,
+      installment_total: updates.installmentTotal !== undefined ? updates.installmentTotal : t.installmentTotal,
+      installment_current: updates.installmentCurrent !== undefined ? updates.installmentCurrent : t.installmentCurrent,
+      recurring_exclusions: updates.recurringExclusions || t.recurringExclusions,
+      linked_goal_id: updates.linkedGoalId !== undefined ? updates.linkedGoalId : t.linkedGoalId,
+      affect_limit_immediately: updates.affectLimitImmediately !== undefined ? updates.affectLimitImmediately : (t.affectLimitImmediately !== false)
+    }).eq('id', id).then();
+
+    const updatedList = transactions.map(tx => {
+      if (tx.id === id) {
+        return { ...tx, ...updates };
+      }
+      return tx;
+    });
+
+    setTransactions(updatedList);
+
+    // Sincroniza os limites dos cartões declarativamente
+    syncCreditCardLimits(updatedList);
   };
 
   const deleteTransaction = async (id: string) => {
@@ -1018,32 +1080,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Update credit card limit if it was an expense
-    if (t.type === 'EXPENSE' && t.creditCardId) {
-      setCreditCards(prev => prev.map(card => {
-        if (card.id === t.creditCardId) {
-          const updatedUsed = card.usedLimit - t.amount;
-          const updatedAvail = card.availableLimit + t.amount;
-          supabase.from('credit_cards').update({
-            used_limit: updatedUsed,
-            available_limit: updatedAvail
-          }).eq('id', card.id).then();
-          return {
-            ...card,
-            usedLimit: updatedUsed,
-            availableLimit: updatedAvail
-          };
-        }
-        return card;
-      }));
-    }
-
     // Deletar lembretes associados
     setReminders(prev => prev.filter(r => r.transactionId !== id));
     await supabase.from('reminders').delete().eq('transaction_id', id);
 
-    setTransactions(prev => prev.filter(tx => tx.id !== id));
+    const remainingTransactions = transactions.filter(tx => tx.id !== id);
+    setTransactions(remainingTransactions);
     await supabase.from('transactions').delete().eq('id', id);
+
+    // Sincronizar limites dos cartões declarativamente
+    syncCreditCardLimits(remainingTransactions);
   };
 
   const addCategory = async (cat: Omit<Category, 'id' | 'isActive'>) => {
@@ -1137,63 +1183,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const markTransactionAsPaid = async (id: string, paymentDate: string) => {
-    setTransactions(prev => prev.map(t => {
-      if (t.id === id) {
-        const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
-        if (!isPaid) {
-          setBanks(prevBanks => prevBanks.map(bank => {
-            if (bank.id === t.bankId) {
-              const amount = t.type === 'INCOME' ? t.amount : -t.amount;
-              const updatedBal = bank.currentBalance + amount;
-              supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
-              return { ...bank, currentBalance: updatedBal };
-            }
-            return bank;
-          }));
+    const t = transactions.find(tx => tx.id === id);
+    if (!t) return;
 
-          if (t.linkedGoalId && t.type === 'EXPENSE') {
-             setGoals(prevGoals => prevGoals.map(goal => {
-               if (goal.id === t.linkedGoalId) {
-                 const updatedAmt = goal.currentAmount + t.amount;
-                 supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
-                 return { ...goal, currentAmount: updatedAmt };
-               }
-               return goal;
-             }));
-          }
-
-          if (t.type === 'EXPENSE' && t.creditCardId) {
-            setCreditCards(prevCards => prevCards.map(card => {
-              if (card.id === t.creditCardId) {
-                const updatedUsed = card.usedLimit - t.amount;
-                const updatedAvail = card.availableLimit + t.amount;
-                supabase.from('credit_cards').update({
-                  used_limit: updatedUsed,
-                  available_limit: updatedAvail
-                }).eq('id', card.id).then();
-                return { ...card, usedLimit: updatedUsed, availableLimit: updatedAvail };
-              }
-              return card;
-            }));
-          }
+    const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
+    if (!isPaid) {
+      setBanks(prevBanks => prevBanks.map(bank => {
+        if (bank.id === t.bankId) {
+          const amount = t.type === 'INCOME' ? t.amount : -t.amount;
+          const updatedBal = bank.currentBalance + amount;
+          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          return { ...bank, currentBalance: updatedBal };
         }
-        
-        const finalStatus = t.type === 'INCOME' ? 'RECEIVED' : 'PAID';
-        supabase.from('transactions').update({
-          status: finalStatus,
-          payment_date: paymentDate
-        }).eq('id', id).then();
+        return bank;
+      }));
 
-        // Concluir lembretes vinculados
-        const relatedReminder = reminders.find(r => r.transactionId === id && !r.isCompleted);
-        if (relatedReminder) {
-          completeReminder(relatedReminder.id);
-        }
-
-        return { ...t, status: finalStatus, paymentDate };
+      if (t.linkedGoalId && t.type === 'EXPENSE') {
+         setGoals(prevGoals => prevGoals.map(goal => {
+           if (goal.id === t.linkedGoalId) {
+             const updatedAmt = goal.currentAmount + t.amount;
+             supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+             return { ...goal, currentAmount: updatedAmt };
+           }
+           return goal;
+         }));
       }
-      return t;
-    }));
+    }
+    
+    const finalStatus = t.type === 'INCOME' ? 'RECEIVED' : 'PAID';
+    supabase.from('transactions').update({
+      status: finalStatus,
+      payment_date: paymentDate
+    }).eq('id', id).then();
+
+    // Concluir lembretes vinculados
+    const relatedReminder = reminders.find(r => r.transactionId === id && !r.isCompleted);
+    if (relatedReminder) {
+      completeReminder(relatedReminder.id);
+    }
+
+    const updatedTransactionsList = transactions.map(tx => {
+      if (tx.id === id) {
+        return { ...tx, status: finalStatus, paymentDate };
+      }
+      return tx;
+    });
+
+    setTransactions(updatedTransactionsList);
+
+    // Sincronizar limites dos cartões declarativamente
+    syncCreditCardLimits(updatedTransactionsList);
   };
 
   const addGoal = async (goal: Omit<Goal, 'id'>) => {
@@ -1245,9 +1284,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       usedLimit: 0,
       availableLimit: card.totalLimit
     };
-    setCreditCards(prev => [...prev, newCard]);
+    
+    let updatedCardsList: CreditCard[] = [];
+    setCreditCards(prev => {
+      updatedCardsList = [...prev, newCard];
+      return updatedCardsList;
+    });
 
-    await supabase.from('credit_cards').insert({
+    const { error } = await supabase.from('credit_cards').insert({
       id,
       user_id: currentUser.id,
       name: card.name,
@@ -1262,34 +1306,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       color: card.color,
       notes: card.notes
     });
+
+    if (error) {
+      console.error(`Error adding credit card:`, error);
+    }
+
+    await syncCreditCardLimits(transactions, updatedCardsList);
   };
 
   const updateCreditCard = async (id: string, updates: Partial<CreditCard>) => {
-    setCreditCards(prev => prev.map(c => {
-      if (c.id === id) {
-        const updated = { ...c, ...updates };
-        if (updates.totalLimit !== undefined) {
-          updated.availableLimit = updates.totalLimit - updated.usedLimit;
+    let updatedCardsList: CreditCard[] = [];
+    setCreditCards(prev => {
+      updatedCardsList = prev.map(c => {
+        if (c.id === id) {
+          return { ...c, ...updates };
         }
+        return c;
+      });
+      return updatedCardsList;
+    });
 
-        supabase.from('credit_cards').update({
-          name: updates.name || c.name,
-          bank_id: updates.bankId !== undefined ? updates.bankId : c.bankId,
-          brand: updates.brand || c.brand,
-          last_four: updates.lastFour || c.lastFour,
-          total_limit: updates.totalLimit !== undefined ? updates.totalLimit : c.totalLimit,
-          used_limit: updated.usedLimit,
-          available_limit: updated.availableLimit,
-          closing_day: updates.closingDay !== undefined ? updates.closingDay : c.closingDay,
-          due_day: updates.dueDay !== undefined ? updates.dueDay : c.dueDay,
-          color: updates.color || c.color,
-          notes: updates.notes !== undefined ? updates.notes : c.notes
-        }).eq('id', id).then();
+    const cardToUpdate = creditCards.find(c => c.id === id);
+    if (!cardToUpdate) return;
 
-        return updated;
-      }
-      return c;
-    }));
+    const { error } = await supabase.from('credit_cards').update({
+      name: updates.name !== undefined ? updates.name : cardToUpdate.name,
+      bank_id: updates.bankId !== undefined ? updates.bankId : cardToUpdate.bankId,
+      brand: updates.brand !== undefined ? updates.brand : cardToUpdate.brand,
+      last_four: updates.lastFour !== undefined ? updates.lastFour : cardToUpdate.lastFour,
+      total_limit: updates.totalLimit !== undefined ? updates.totalLimit : cardToUpdate.totalLimit,
+      closing_day: updates.closingDay !== undefined ? updates.closingDay : cardToUpdate.closingDay,
+      due_day: updates.dueDay !== undefined ? updates.dueDay : cardToUpdate.dueDay,
+      color: updates.color !== undefined ? updates.color : cardToUpdate.color,
+      notes: updates.notes !== undefined ? updates.notes : cardToUpdate.notes
+    }).eq('id', id);
+
+    if (error) {
+      console.error(`Error updating credit card:`, error);
+    }
+
+    await syncCreditCardLimits(transactions, updatedCardsList);
   };
 
   const deleteCreditCard = async (id: string) => {
@@ -1523,6 +1579,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logoutUser = async () => {
     await supabase.auth.signOut();
     setCurrentUser(null);
+    setDefaultBankId(null);
+  };
+
+  const setDefaultBank = async (bankId: string | null) => {
+    if (!currentUser) return;
+    setDefaultBankId(bankId);
+
+    const { data: dbSettings } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', currentUser.id);
+
+    const userSettingsRow = dbSettings && dbSettings.length > 0 ? dbSettings[0] : null;
+    let settingsObj = userSettingsRow?.settings || {};
+    if (typeof settingsObj === 'string') {
+      try {
+        settingsObj = JSON.parse(settingsObj);
+      } catch (e) {
+        settingsObj = {};
+      }
+    }
+
+    const newSettings = {
+      ...settingsObj,
+      default_bank_id: bankId
+    };
+
+    await supabase.from('user_settings').upsert({
+      user_id: currentUser.id,
+      settings: newSettings,
+      updated_at: new Date().toISOString()
+    });
   };
 
   const updateUserProfile = async (updates: Partial<User>) => {
@@ -1544,7 +1632,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addGoal, updateGoal, deleteGoal, addCreditCard, updateCreditCard, deleteCreditCard, excludeRecurringMonth, payAllOverdue,
       addReminder, updateReminder, deleteReminder, completeReminder, reminders,
       addRecurringHistoryEntry, cloneRecurringHistory,
-      currentUser, registerUser, loginUser, logoutUser, updateUserProfile
+      currentUser, registerUser, loginUser, logoutUser, updateUserProfile,
+      defaultBankId, setDefaultBank
     }}>
       {children}
     </AppContext.Provider>
