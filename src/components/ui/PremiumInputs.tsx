@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../lib/utils';
 import { ChevronDown, Calendar as CalendarIcon, Check, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -119,12 +119,15 @@ interface PremiumSelectProps {
   className?: string;
   required?: boolean;
   disabled?: boolean;
+  disableSort?: boolean;
 }
 
-export function PremiumSelect({ options, value, onChange, placeholder = 'Selecione...', label, className, required, disabled }: PremiumSelectProps) {
+export function PremiumSelect({ options, value, onChange, placeholder = 'Selecione...', label, className, required, disabled, disableSort }: PremiumSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const selectedOption = options.find(o => o.value === value);
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -138,9 +141,60 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
           });
         }
       }, 50);
-      return () => clearTimeout(timer);
+      
+      const focusTimer = setTimeout(() => {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        }
+      }, 100);
+
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(focusTimer);
+      };
+    } else {
+      setSearchQuery('');
     }
   }, [isOpen]);
+
+  // Ordenar opções de forma inteligente
+  const sortedOptions = useMemo(() => {
+    if (disableSort) return options;
+
+    // Separa opções normais de especiais (como "+ Nova Categoria", "+ Novo Cartão", "+ Novo Banco", etc.)
+    const normalOptions = options.filter(o => 
+      !o.label.startsWith('+') && 
+      !o.label.includes('Nova') && 
+      !o.label.includes('Novo') &&
+      o.value !== '' && 
+      o.value !== 'NEW'
+    );
+    const specialOptions = options.filter(o => 
+      o.label.startsWith('+') || 
+      o.label.includes('Nova') || 
+      o.label.includes('Novo') ||
+      o.value === '' || 
+      o.value === 'NEW'
+    );
+
+    normalOptions.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
+    // As opções especiais (como "Nenhum" ou "+ Nova Categoria") devem ficar nos seus lugares:
+    // Geralmente "Nenhum" ou valores vazios ficam no início. "+ Nova" fica no final.
+    const emptyValueOptions = specialOptions.filter(o => o.value === '');
+    const otherSpecialOptions = specialOptions.filter(o => o.value !== '');
+
+    return [...emptyValueOptions, ...normalOptions, ...otherSpecialOptions];
+  }, [options, disableSort]);
+
+  // Filtrar as opções com base na busca
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery) return sortedOptions;
+    const lowerQuery = searchQuery.toLowerCase();
+    return sortedOptions.filter(o => 
+      o.label.toLowerCase().includes(lowerQuery)
+    );
+  }, [sortedOptions, searchQuery]);
 
   return (
     <div className={cn("space-y-1.5 relative", className)} ref={containerRef}>
@@ -176,44 +230,71 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
               transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-              className="w-full mt-2 bg-card border border-border shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden backdrop-blur-xl"
+              className="w-full mt-2 bg-card border border-border shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden backdrop-blur-xl flex flex-col"
             >
+              {/* Campo de busca */}
+              <div className="p-2 border-b border-border/40 bg-muted/5">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Pesquisar..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (filteredOptions.length === 1) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onChange(filteredOptions[0].value);
+                        setIsOpen(false);
+                      }
+                    }
+                  }}
+                  className="w-full bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+                  onClick={e => e.stopPropagation()} // Impede fechar o dropdown ao clicar no input
+                />
+              </div>
+
               <div className="p-1.5 max-h-[280px] overflow-y-auto no-scrollbar">
-                {options.length === 0 ? (
+                {filteredOptions.length === 0 ? (
                   <div className="px-4 py-8 text-center text-xs text-muted-foreground italic">
-                    Nenhuma opção disponível
+                    Nenhuma opção encontrada
                   </div>
-                ) : options.map((option) => (
-                  <button
-                    ref={value === option.value ? activeRef : undefined}
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      onChange(option.value);
-                      setIsOpen(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm transition-all text-left group mb-1 last:mb-0",
-                      value === option.value 
-                        ? "bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/10" 
-                        : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                    )}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0 py-0.5">
-                      {option.color && (
-                        <div 
-                          className={cn(
-                            "w-2 h-2 rounded-full border shrink-0",
-                            value === option.value ? "border-black/20" : "border-foreground/10"
-                          )} 
-                          style={{ backgroundColor: option.color }} 
-                        />
+                ) : filteredOptions.map((option) => {
+                  const isSingleOption = filteredOptions.length === 1;
+                  const isItemActive = value === option.value || (isSingleOption && filteredOptions[0].value === option.value);
+                  return (
+                    <button
+                      ref={isItemActive ? activeRef : undefined}
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(option.value);
+                        setIsOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm transition-all text-left group mb-1 last:mb-0",
+                        isItemActive 
+                          ? "bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/10" 
+                          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                       )}
-                      <span className="whitespace-normal break-all text-left flex-1 text-xs leading-tight">{option.label}</span>
-                    </div>
-                    {value === option.value && <Check className="w-3.5 h-3.5 shrink-0" />}
-                  </button>
-                ))}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0 py-0.5">
+                        {option.color && (
+                          <div 
+                            className={cn(
+                              "w-2 h-2 rounded-full border shrink-0",
+                              isItemActive ? "border-black/20" : "border-foreground/10"
+                            )} 
+                            style={{ backgroundColor: option.color }} 
+                          />
+                        )}
+                        <span className="whitespace-normal break-all text-left flex-1 text-xs leading-tight">{option.label}</span>
+                      </div>
+                      {isItemActive && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
             </motion.div>
           )}

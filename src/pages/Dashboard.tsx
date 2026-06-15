@@ -209,6 +209,7 @@ export default function DashboardPage() {
     isInstallment: false,
     installmentCount: '1',
     installmentStart: '0',
+    installmentBasedOn: 'purchase_date',
     linkedGoalId: '',
     affectLimitImmediately: true
   });
@@ -378,18 +379,33 @@ export default function DashboardPage() {
 
         let offset = 0;
         for (let j = start; j <= count; j++) {
-          const installmentDueDate = addMonths(baseDueDate, offset);
-          const installmentPaymentDate = addMonths(basePaymentDate, offset);
-          
-          let finalInstallmentDueDate = installmentDueDate;
-          if (card) {
-            const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
-            finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+          let installmentDueDate: Date;
+          let finalInstallmentDueDate: Date;
+
+          if (newTx.installmentBasedOn === 'next_due_date') {
+            // A data inserida é o vencimento da próxima parcela (start)
+            // A parcela j vencerá em: baseDueDate + (j - start) meses
+            finalInstallmentDueDate = addMonths(baseDueDate, j - start);
+            
+            // Para a competência: se for cartão, subtraímos 1 mês. Caso contrário, usamos a própria data.
+            installmentDueDate = card ? addMonths(finalInstallmentDueDate, -1) : finalInstallmentDueDate;
+          } else {
+            // A data inserida é a data da compra
+            // A competência da parcela j é: data de compra + (j - 1) meses
+            installmentDueDate = addMonths(baseDueDate, j - 1);
+            if (card) {
+              const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
+              finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+            } else {
+              finalInstallmentDueDate = installmentDueDate;
+            }
           }
+
+          const installmentPaymentDate = addMonths(basePaymentDate, j - start);
 
           const id = addTransaction({
             ...txData,
-            competenceDate: installmentDueDate.toISOString(), // Set competence to purchase date of each installment
+            competenceDate: installmentDueDate.toISOString(),
             dueDate: finalInstallmentDueDate.toISOString(),
             paymentDate: (offset === 0 && newTx.isPaid) ? installmentPaymentDate.toISOString() : undefined,
             status: (offset === 0 && newTx.isPaid) ? txData.status : 'OPEN',
@@ -443,6 +459,7 @@ export default function DashboardPage() {
       isInstallment: false,
       installmentCount: '1',
       installmentStart: '0',
+      installmentBasedOn: 'purchase_date',
       linkedGoalId: '',
       affectLimitImmediately: true
     });
@@ -760,40 +777,48 @@ export default function DashboardPage() {
               ]}
             />
             {activeModal === 'new_transaction_expense' ? (
-              <div className="space-y-4">
-                <PremiumSelect 
-                  label="Cartão de Crédito"
-                  value={newTx.creditCardId || ''}
-                  onChange={handleCardChange}
-                  options={[{ value: '', label: 'Nenhum' }, ...creditCards.map(cc => ({ value: cc.id, label: cc.name, color: cc.color }))]}
-                />
-                {newTx.creditCardId && (
-                  <div 
-                    className="flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none animate-in fade-in slide-in-from-top-1 duration-200"
-                    onClick={() => setNewTx(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
-                  >
-                    <div className="flex flex-col pr-2">
-                      <span className="text-xs font-semibold text-foreground/90">Bloquear limite total imediatamente</span>
-                      <span className="text-[10px] text-muted-foreground mt-0.5">
-                        {newTx.affectLimitImmediately !== false 
-                          ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
-                          : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
-                      </span>
-                    </div>
-                    <div className={cn(
-                      "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
-                      newTx.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
-                    )}>
-                      <div className={cn(
-                        "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                        newTx.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
-                      )} />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <PremiumSelect 
+                label="Cartão de Crédito"
+                value={newTx.creditCardId || ''}
+                onChange={handleCardChange}
+                options={[{ value: '', label: 'Nenhum' }, ...creditCards.map(cc => ({ value: cc.id, label: cc.name, color: cc.color }))]}
+              />
             ) : <div />}
           </div>
+
+          {activeModal === 'new_transaction_expense' && newTx.creditCardId && (
+            <div 
+              tabIndex={0}
+              role="checkbox"
+              aria-checked={newTx.affectLimitImmediately !== false}
+              className="mt-4 flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none focus:ring-2 focus:ring-primary focus:outline-none animate-in fade-in slide-in-from-top-1 duration-200"
+              onClick={() => setNewTx(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
+              onKeyDown={(e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  setNewTx(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}));
+                }
+              }}
+            >
+              <div className="flex flex-col pr-2">
+                <span className="text-xs font-semibold text-foreground/90">Consome o limite</span>
+                <span className="text-[10px] text-muted-foreground mt-0.5">
+                  {newTx.affectLimitImmediately !== false 
+                    ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
+                    : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
+                </span>
+              </div>
+              <div className={cn(
+                "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                newTx.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
+              )}>
+                <div className={cn(
+                  "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                  newTx.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
+                )} />
+              </div>
+            </div>
+          )}
 
           {activeModal === 'new_transaction_expense' && (
             <PremiumSelect 
@@ -820,7 +845,11 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <PremiumDatePicker 
-                  label={newTx.creditCardId ? "Data da Compra" : "Vencimento"}
+                  label={
+                    newTx.isInstallment && newTx.installmentBasedOn === 'next_due_date'
+                      ? "Vencimento da Próxima Parcela"
+                      : (newTx.creditCardId ? "Data da Compra" : "Vencimento")
+                  }
                   value={newTx.dueDate}
                   onChange={val => setNewTx({...newTx, dueDate: val})}
                 />
@@ -835,13 +864,23 @@ export default function DashboardPage() {
             </div>
           
           <div className="space-y-3 pt-2">
-             <div className={cn(
-                    "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all",
+             <div 
+                  tabIndex={newTx.creditCardId ? -1 : 0}
+                  role="checkbox"
+                  aria-checked={newTx.isPaid}
+                  className={cn(
+                    "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
                     newTx.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
                   )} 
                   onClick={() => {
                     if (!newTx.creditCardId) {
                       setNewTx({...newTx, isPaid: !newTx.isPaid});
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (!newTx.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
+                      e.preventDefault();
+                      setNewTx(prev => ({...prev, isPaid: !prev.isPaid}));
                     }
                   }}>
                <div className="flex flex-col">
@@ -862,7 +901,19 @@ export default function DashboardPage() {
              </div>
 
             {activeModal === 'new_transaction_expense' && (
-              <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all" onClick={() => setNewTx({...newTx, isInstallment: !newTx.isInstallment})}>
+              <div 
+                tabIndex={0}
+                role="checkbox"
+                aria-checked={newTx.isInstallment}
+                className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none" 
+                onClick={() => setNewTx({...newTx, isInstallment: !newTx.isInstallment})}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setNewTx(prev => ({...prev, isInstallment: !prev.isInstallment}));
+                  }
+                }}
+              >
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
                   <span className="text-[10px] text-muted-foreground">Configurar lançamentos parcelados?</span>
@@ -882,6 +933,41 @@ export default function DashboardPage() {
 
           {newTx.isInstallment && activeModal === 'new_transaction_expense' && (
             <div className="space-y-3 animate-in fade-in duration-300">
+              {/* Opção para basear no vencimento da próxima parcela */}
+              <div 
+                tabIndex={0}
+                role="checkbox"
+                aria-checked={newTx.installmentBasedOn === 'next_due_date'}
+                className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none"
+                onClick={() => setNewTx(prev => ({
+                  ...prev, 
+                  installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
+                }))}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setNewTx(prev => ({
+                      ...prev, 
+                      installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
+                    }));
+                  }
+                }}
+              >
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-semibold tracking-tight text-foreground/90">Informar vencimento da próxima parcela</span>
+                  <span className="text-[10px] text-muted-foreground">Definir data com base no vencimento e não na compra</span>
+                </div>
+                <div className={cn(
+                  "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
+                  newTx.installmentBasedOn === 'next_due_date' ? "bg-primary" : "bg-muted"
+                )}>
+                  <div className={cn(
+                    "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                    newTx.installmentBasedOn === 'next_due_date' ? "translate-x-5" : "translate-x-0"
+                  )} />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Nº Total de Parcelas</label>
@@ -910,13 +996,28 @@ export default function DashboardPage() {
               </div>
               <div className="bg-muted/30 border border-border/40 p-3 rounded-xl text-xs text-muted-foreground font-medium">
                  {(() => {
+                   const card = creditCards.find(c => c.id === newTx.creditCardId);
                    const total = Number(newTx.installmentCount) || 1;
                    const paid = Number(newTx.installmentStart) || 0;
                    const remaining = Math.max(0, total - paid);
+                   const start = paid + 1;
 
                    const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                   const dueDateObj = new Date(newTx.dueDate + 'T12:00:00');
-                   const lastInstallmentDate = addMonths(dueDateObj, remaining - 1);
+                   const baseDueDate = new Date(newTx.dueDate + 'T12:00:00');
+                   
+                   let lastInstallmentDate = new Date();
+                   if (remaining > 0) {
+                     if (newTx.installmentBasedOn === 'next_due_date') {
+                       lastInstallmentDate = addMonths(baseDueDate, total - start);
+                     } else {
+                       let firstInstallmentDueDate = baseDueDate;
+                       if (card) {
+                         const dateStr = format(baseDueDate, 'yyyy-MM-dd');
+                         firstInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+                       }
+                       lastInstallmentDate = addMonths(firstInstallmentDueDate, total - 1);
+                     }
+                   }
                    const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
 
                    if (remaining === 0) {
@@ -1183,6 +1284,7 @@ export default function DashboardPage() {
                 const y = now.getFullYear() - 5 + i;
                 return { value: y.toString(), label: y.toString() };
               })}
+              disableSort={true}
             />
             <PremiumSelect
               label="Mês"
@@ -1195,6 +1297,7 @@ export default function DashboardPage() {
                 { value: 'ALL', label: 'Todos' },
                 ...months.map(m => ({ value: m, label: m }))
               ]}
+              disableSort={true}
             />
           </div>
 
@@ -1514,6 +1617,7 @@ export default function DashboardPage() {
                         const y = now.getFullYear() - 5 + i;
                         return { value: y.toString(), label: y.toString() };
                       })}
+                      disableSort={true}
                     />
                   </div>
                   <div className="w-32">
@@ -1528,6 +1632,7 @@ export default function DashboardPage() {
                         { value: 'ALL', label: 'Todos' },
                         ...months.map(m => ({ value: m, label: m }))
                       ]}
+                      disableSort={true}
                     />
                   </div>
                 </div>

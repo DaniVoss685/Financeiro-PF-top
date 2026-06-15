@@ -450,6 +450,7 @@ export default function TransactionsPage() {
     isInstallment: false,
     installmentCount: '1',
     installmentStart: '0',
+    installmentBasedOn: 'purchase_date',
     linkedGoalId: '',
     affectLimitImmediately: true
   });
@@ -674,6 +675,7 @@ export default function TransactionsPage() {
       isInstallment: false,
       installmentCount: '1',
       installmentStart: '0',
+      installmentBasedOn: 'purchase_date',
       linkedGoalId: ''
     });
     setEditingTransaction(null);
@@ -698,6 +700,7 @@ export default function TransactionsPage() {
       isInstallment: t.isInstallment,
       installmentCount: t.installmentTotal?.toString() || '1',
       installmentStart: t.installmentCurrent?.toString() || '1',
+      installmentBasedOn: 'purchase_date',
       linkedGoalId: t.linkedGoalId || '',
       affectLimitImmediately: t.affectLimitImmediately !== false
     });
@@ -838,14 +841,23 @@ export default function TransactionsPage() {
 
         let offset = 0;
         for (let j = start; j <= count; j++) {
-          const installmentDueDate = addMonths(baseDueDate, offset);
-          const installmentPaymentDate = addMonths(basePaymentDate, offset);
-          
-          let finalInstallmentDueDate = installmentDueDate;
-          if (card) {
-            const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
-            finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+          let installmentDueDate: Date;
+          let finalInstallmentDueDate: Date;
+
+          if (formData.installmentBasedOn === 'next_due_date') {
+            finalInstallmentDueDate = addMonths(baseDueDate, j - start);
+            installmentDueDate = card ? addMonths(finalInstallmentDueDate, -1) : finalInstallmentDueDate;
+          } else {
+            installmentDueDate = addMonths(baseDueDate, j - 1);
+            if (card) {
+              const dateStr = format(installmentDueDate, 'yyyy-MM-dd');
+              finalInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+            } else {
+              finalInstallmentDueDate = installmentDueDate;
+            }
           }
+
+          const installmentPaymentDate = addMonths(basePaymentDate, j - start);
 
           const id = addTransaction({
             ...txData,
@@ -853,6 +865,7 @@ export default function TransactionsPage() {
             dueDate: finalInstallmentDueDate.toISOString(),
             paymentDate: (offset === 0 && formData.isPaid) ? installmentPaymentDate.toISOString() : undefined,
             status: (offset === 0 && formData.isPaid) ? txData.status : 'OPEN',
+            isInstallment: true,
             installmentTotal: count,
             installmentCurrent: j,
             description: `${txData.description} (${j}/${count})`
@@ -948,7 +961,6 @@ export default function TransactionsPage() {
         </div>
       </header>
 
-      {/* Period Selectors */}
       <div className="flex flex-wrap items-center gap-4 bg-card/30 border border-border/40 rounded-[2rem] p-4 backdrop-blur-xl shadow-2xl w-fit">
         <div className="w-[120px]">
           <PremiumSelect
@@ -959,6 +971,7 @@ export default function TransactionsPage() {
               const y = now.getFullYear() - 5 + i;
               return { value: y.toString(), label: y.toString() };
             })}
+            disableSort={true}
           />
         </div>
         <div className="w-[160px]">
@@ -974,6 +987,7 @@ export default function TransactionsPage() {
                 label: monthName.charAt(0).toUpperCase() + monthName.slice(1)
               };
             })}
+            disableSort={true}
           />
         </div>
       </div>
@@ -1121,40 +1135,48 @@ export default function TransactionsPage() {
                 onChange={val => setFormData({...formData, categoryId: val})}
               />
               {formData.type === 'EXPENSE' ? (
-                <div className="space-y-4">
-                  <PremiumSelect 
-                    label="Cartão de Crédito"
-                    options={[{ value: '', label: 'Nenhum' }, ...cardOptions]}
-                    value={formData.creditCardId || ''}
-                    onChange={handleCardChange}
-                  />
-                  {formData.creditCardId && (
-                    <div 
-                      className="flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none animate-in fade-in slide-in-from-top-1 duration-200"
-                      onClick={() => setFormData(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
-                    >
-                      <div className="flex flex-col pr-2">
-                        <span className="text-xs font-semibold text-foreground/90">Bloquear limite total imediatamente</span>
-                        <span className="text-[10px] text-muted-foreground mt-0.5">
-                          {formData.affectLimitImmediately !== false 
-                            ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
-                            : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
-                        </span>
-                      </div>
-                      <div className={cn(
-                        "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
-                        formData.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
-                      )}>
-                        <div className={cn(
-                          "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                          formData.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
-                        )} />
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <PremiumSelect 
+                  label="Cartão de Crédito"
+                  options={[{ value: '', label: 'Nenhum' }, ...cardOptions]}
+                  value={formData.creditCardId || ''}
+                  onChange={handleCardChange}
+                />
               ) : <div />}
             </div>
+
+            {formData.type === 'EXPENSE' && formData.creditCardId && (
+              <div 
+                tabIndex={0}
+                role="checkbox"
+                aria-checked={formData.affectLimitImmediately !== false}
+                className="mt-4 flex items-center justify-between p-3.5 bg-muted/20 border border-border/50 rounded-2xl cursor-pointer hover:bg-muted/30 transition-all select-none focus:ring-2 focus:ring-primary focus:outline-none animate-in fade-in slide-in-from-top-1 duration-200"
+                onClick={() => setFormData(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}))}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setFormData(prev => ({...prev, affectLimitImmediately: !prev.affectLimitImmediately}));
+                  }
+                }}
+              >
+                <div className="flex flex-col pr-2">
+                  <span className="text-xs font-semibold text-foreground/90">Consome o limite</span>
+                  <span className="text-[10px] text-muted-foreground mt-0.5">
+                    {formData.affectLimitImmediately !== false 
+                      ? "Consome o limite do cartão agora (ideal para compras/parcelados)" 
+                      : "Debitar limite apenas na data de vencimento (ideal para assinaturas/mensalidades)"}
+                  </span>
+                </div>
+                <div className={cn(
+                  "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                  formData.affectLimitImmediately !== false ? "bg-primary" : "bg-muted"
+                )}>
+                  <div className={cn(
+                    "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                    formData.affectLimitImmediately !== false ? "translate-x-5" : "translate-x-0"
+                  )} />
+                </div>
+              </div>
+            )}
 
             {formData.categoryId === 'NEW' && (
               <div className="animate-in slide-in-from-top-1 duration-200">
@@ -1181,7 +1203,11 @@ export default function TransactionsPage() {
             <div className="grid grid-cols-2 gap-4">
                <div>
                  <PremiumDatePicker 
-                  label={formData.creditCardId ? "Data da Compra" : "Vencimento"}
+                   label={
+                     formData.isInstallment && formData.installmentBasedOn === 'next_due_date'
+                       ? "Vencimento da Próxima Parcela"
+                       : (formData.creditCardId ? "Data da Compra" : "Vencimento")
+                   }
                   value={formData.dueDate}
                   onChange={val => setFormData({...formData, dueDate: val})}
                  />
@@ -1196,15 +1222,25 @@ export default function TransactionsPage() {
             </div>
 
             <div className="flex flex-col gap-3">
-               <div className={cn(
-                       "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all",
-                       formData.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
-                     )} 
-                     onClick={() => {
-                       if (!formData.creditCardId) {
-                         setFormData({...formData, isPaid: !formData.isPaid});
-                       }
-                     }}>
+               <div 
+                      tabIndex={formData.creditCardId ? -1 : 0}
+                      role="checkbox"
+                      aria-checked={formData.isPaid}
+                      className={cn(
+                        "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                        formData.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                      )} 
+                      onClick={() => {
+                        if (!formData.creditCardId) {
+                          setFormData({...formData, isPaid: !formData.isPaid});
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (!formData.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
+                          e.preventDefault();
+                          setFormData(prev => ({...prev, isPaid: !prev.isPaid}));
+                        }
+                      }}>
                  <div className="flex flex-col">
                    <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
                    <span className="text-[10px] text-muted-foreground">
@@ -1223,8 +1259,19 @@ export default function TransactionsPage() {
                </div>
 
                {formData.type === 'EXPENSE' && (
-                 <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all" 
-                      onClick={() => setFormData({...formData, isInstallment: !formData.isInstallment})}>
+                 <div 
+                       tabIndex={0}
+                       role="checkbox"
+                       aria-checked={formData.isInstallment}
+                       className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none" 
+                       onClick={() => setFormData({...formData, isInstallment: !formData.isInstallment})}
+                       onKeyDown={(e) => {
+                         if (e.key === ' ' || e.key === 'Enter') {
+                           e.preventDefault();
+                           setFormData(prev => ({...prev, isInstallment: !prev.isInstallment}));
+                         }
+                       }}
+                  >
                    <div className="flex flex-col">
                      <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
                      <span className="text-[10px] text-muted-foreground">Configurar lançamentos parcelados?</span>
@@ -1275,10 +1322,25 @@ export default function TransactionsPage() {
                        const total = Number(formData.installmentCount) || 1;
                        const paid = Number(formData.installmentStart) || 0;
                        const remaining = Math.max(0, total - paid);
+                       const start = paid + 1;
 
                        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                       const dueDateObj = new Date(formData.dueDate + 'T12:00:00');
-                       const lastInstallmentDate = addMonths(dueDateObj, remaining - 1);
+                       const baseDueDate = new Date(formData.dueDate + 'T12:00:00');
+                       
+                       let lastInstallmentDate = new Date();
+                       if (remaining > 0) {
+                         if (formData.installmentBasedOn === 'next_due_date') {
+                           lastInstallmentDate = addMonths(baseDueDate, remaining - 1);
+                         } else {
+                           let firstInstallmentDueDate = baseDueDate;
+                           const card = creditCards.find(c => c.id === formData.creditCardId);
+                           if (card) {
+                             const dateStr = format(baseDueDate, 'yyyy-MM-dd');
+                             firstInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+                           }
+                           lastInstallmentDate = addMonths(firstInstallmentDueDate, remaining - 1);
+                         }
+                       }
                        const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
 
                        if (remaining === 0) {

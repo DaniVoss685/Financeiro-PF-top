@@ -226,6 +226,18 @@ export default function CardsPage() {
           </div>
           
           <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="w-[110px]">
+              <PremiumSelect
+                label="Ano"
+                value={selectedYear.toString()}
+                onChange={(val) => setSelectedYear(parseInt(val))}
+                options={Array.from({ length: 10 }, (_, i) => {
+                  const year = new Date().getFullYear() - 5 + i;
+                  return { value: year.toString(), label: year.toString() };
+                })}
+                disableSort={true}
+              />
+            </div>
             <div className="w-[140px]">
               <PremiumSelect
                 label="Mês"
@@ -239,17 +251,7 @@ export default function CardsPage() {
                     label: monthName.charAt(0).toUpperCase() + monthName.slice(1)
                   };
                 })}
-              />
-            </div>
-            <div className="w-[110px]">
-              <PremiumSelect
-                label="Ano"
-                value={selectedYear.toString()}
-                onChange={(val) => setSelectedYear(parseInt(val))}
-                options={Array.from({ length: 10 }, (_, i) => {
-                  const year = new Date().getFullYear() - 5 + i;
-                  return { value: year.toString(), label: year.toString() };
-                })}
+                disableSort={true}
               />
             </div>
           </div>
