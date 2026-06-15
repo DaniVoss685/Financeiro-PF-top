@@ -82,7 +82,7 @@ export default function RecurringPage() {
 
     // 2. Cria a nova recorrência a partir do primeiro mês futuro vago com os novos dados editados
     let checkDueDate = addMonths(new Date(formData.dueDate + 'T12:00:00'), 1);
-    let checkCompetenceDate = addMonths(new Date(formData.competenceDate + 'T12:00:00'), 1);
+    let checkCompetenceDate = addMonths(new Date(formData.dueDate + 'T12:00:00'), 1);
 
     let isMonthOccupied = true;
     while (isMonthOccupied) {
@@ -139,7 +139,7 @@ export default function RecurringPage() {
       amount: formData.amount,
       isRecurring: true,
       isInstallment: false,
-      competenceDate: new Date(formData.competenceDate + 'T12:00:00').toISOString(),
+      competenceDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
       dueDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
       linkedGoalId: formData.linkedGoalId || undefined,
     };
@@ -161,7 +161,7 @@ export default function RecurringPage() {
         amount: formData.amount,
         isRecurring: true,
         isInstallment: false,
-        competenceDate: new Date(formData.competenceDate + 'T12:00:00').toISOString(),
+        competenceDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
         dueDate: new Date(formData.dueDate + 'T12:00:00').toISOString(),
         linkedGoalId: formData.linkedGoalId || undefined,
       };
@@ -371,16 +371,15 @@ export default function RecurringPage() {
               />
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div>
               <PremiumDatePicker
                 label="Próximo Vencimento"
                 value={formData.dueDate}
-                onChange={val => setFormData({...formData, dueDate: val})}
-              />
-              <PremiumDatePicker
-                label="Data Competência"
-                value={formData.competenceDate}
-                onChange={val => setFormData({...formData, competenceDate: val})}
+                onChange={val => setFormData({
+                  ...formData,
+                  dueDate: val,
+                  competenceDate: val
+                })}
               />
             </div>
 

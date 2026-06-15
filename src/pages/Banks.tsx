@@ -126,7 +126,6 @@ export default function BanksPage() {
                     </div>
                     <div className="relative z-10">
                       <h3 className="font-semibold text-lg">{bank.name}</h3>
-                      <p className="text-sm text-muted-foreground capitalize">{bank.type.toLowerCase()}</p>
                     </div>
                   </div>
 
@@ -214,18 +213,6 @@ export default function BanksPage() {
               />
             </div>
 
-            <PremiumSelect 
-              label="Tipo de Conta"
-              options={[
-                { value: 'CHECKING', label: 'Conta Corrente' },
-                { value: 'SAVINGS', label: 'Poupança' },
-                { value: 'INVESTMENT', label: 'Investimento' },
-                { value: 'WALLET', label: 'Carteira / Dinheiro' }
-              ]}
-              value={formData.type}
-              onChange={val => setFormData({...formData, type: val as any})}
-              required
-            />
 
             <PremiumCurrencyInput 
               label="Saldo Inicial"
@@ -252,7 +239,10 @@ export default function BanksPage() {
             <div>
               <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Cor</label>
               <div className="flex flex-wrap gap-2">
-                {['#BCF24B', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D'].map(color => (
+                {[
+                  '#BCF24B', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
+                  '#0284C7', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#7C3AED', '#EAB308'
+                ].map(color => (
                   <button
                     key={color}
                     type="button"

@@ -782,40 +782,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (t.isRecurring) {
         addRecurringHistoryEntry(newId, t.amount, t.competenceDate.substring(0, 7));
       }
-
-      // Criar lembrete automático inteligente de WhatsApp se for vencimento futuro (amanhã em diante)
-      const todayStr = format(new Date(), 'yyyy-MM-dd');
-      if ((t.type === 'EXPENSE' || t.type === 'INCOME') && t.status === 'OPEN' && t.dueDate > todayStr && !t.creditCardId) {
-        const reminderTitle = `${t.type === 'EXPENSE' ? 'Pagamento' : 'Recebimento'}: ${t.description}`;
-        const reminderDesc = `Lembrete automático para o vencimento de ${t.description}`;
-        const newReminderId = uuidv4();
-        const newReminder = {
-          id: newReminderId,
-          transactionId: newId,
-          title: reminderTitle,
-          description: reminderDesc,
-          dueDate: t.dueDate,
-          method: 'WHATSAPP' as const,
-          isCompleted: false,
-          whatsappSent: false,
-          createdAt: new Date().toISOString()
-        };
-
-        setReminders(prev => [...prev, newReminder]);
-
-        await supabase.from('reminders').insert({
-          id: newReminderId,
-          user_id: currentUser.id,
-          transaction_id: newId,
-          title: reminderTitle,
-          description: reminderDesc,
-          due_date: t.dueDate,
-          method: 'WHATSAPP',
-          is_completed: false,
-          whatsapp_sent: false,
-          created_at: newReminder.createdAt
-        });
-      }
     });
 
     return newId;
@@ -993,38 +959,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const related = reminders.find(r => r.transactionId === id);
           if (related) {
             updateReminder(related.id, { dueDate: updates.dueDate });
-          } else {
-            const todayStr = format(new Date(), 'yyyy-MM-dd');
-            const finalStatus = updates.status || t.status;
-            if (finalStatus === 'OPEN' && updates.dueDate > todayStr) {
-              const reminderTitle = `${(updates.type || t.type) === 'EXPENSE' ? 'Pagamento' : 'Recebimento'}: ${updates.description || t.description}`;
-              const reminderDesc = `Lembrete automático para o vencimento de ${updates.description || t.description}`;
-              const newReminderId = uuidv4();
-              const newReminder = {
-                id: newReminderId,
-                transactionId: id,
-                title: reminderTitle,
-                description: reminderDesc,
-                dueDate: updates.dueDate,
-                method: 'WHATSAPP' as const,
-                isCompleted: false,
-                whatsappSent: false,
-                createdAt: new Date().toISOString()
-              };
-              setReminders(prev => [...prev, newReminder]);
-              supabase.from('reminders').insert({
-                id: newReminderId,
-                user_id: currentUser.id,
-                transaction_id: id,
-                title: reminderTitle,
-                description: reminderDesc,
-                due_date: updates.dueDate,
-                method: 'WHATSAPP',
-                is_completed: false,
-                whatsapp_sent: false,
-                created_at: newReminder.createdAt
-              }).then();
-            }
           }
         }
 

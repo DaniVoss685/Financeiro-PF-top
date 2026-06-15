@@ -21,7 +21,18 @@ import {
   Plus,
   HandCoins,
   PlusCircle,
-  MinusCircle
+  MinusCircle,
+  GraduationCap,
+  Dumbbell,
+  Shirt,
+  Scissors,
+  Dog,
+  PiggyBank,
+  Wrench,
+  Bus,
+  Tv,
+  Sparkles,
+  HeartHandshake
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -44,6 +55,17 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   'plus-circle': PlusCircle || Plus,
   'minus-circle': MinusCircle || HelpCircle,
   'help-circle': HelpCircle,
+  education: GraduationCap,
+  fitness: Dumbbell,
+  clothing: Shirt,
+  beauty: Scissors,
+  pet: Dog,
+  savings: PiggyBank,
+  maintenance: Wrench,
+  bus: Bus,
+  streaming: Tv,
+  leisure: Sparkles,
+  donation: HeartHandshake
 };
 
 interface CategoryIconProps {
