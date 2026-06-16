@@ -572,11 +572,19 @@ export default function TransactionsPage() {
 
             if (!alreadyExists && !isSourceMonth) {
                const projectedDate = new Date(y, m, rtStart.getDate());
+               let projectedDueDate = projectedDate.toISOString();
+               if (rt.creditCardId) {
+                 const card = creditCards.find(c => c.id === rt.creditCardId);
+                 if (card) {
+                   const dateStr = format(projectedDate, 'yyyy-MM-dd');
+                   projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
+                 }
+               }
                list.push({
                  ...rt,
                  id: `recurring-${rt.id}-${y}-${m}`,
                  competenceDate: projectedDate.toISOString(),
-                 dueDate: projectedDate.toISOString(),
+                 dueDate: projectedDueDate,
                  paymentDate: undefined,
                  status: 'OPEN'
                });
@@ -609,7 +617,7 @@ export default function TransactionsPage() {
       const matchesStatus = status === 'ALL' || currentStatus === status;
       const matchesCategory = category === 'ALL' || t.categoryId === category;
       
-      const txDateStr = (t.paymentDate || t.competenceDate).split('T')[0];
+      const txDateStr = (t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).split('T')[0];
       const matchesStartDate = !startDate || txDateStr >= startDate;
       const matchesEndDate = !endDate || txDateStr <= endDate;
       
@@ -617,8 +625,8 @@ export default function TransactionsPage() {
     }).sort((a, b) => {
       let comparison = 0;
       
-      const dateA = a.paymentDate || a.competenceDate;
-      const dateB = b.paymentDate || b.competenceDate;
+      const dateA = a.paymentDate || (a.creditCardId ? a.dueDate : a.competenceDate);
+      const dateB = b.paymentDate || (b.creditCardId ? b.dueDate : b.competenceDate);
       
       switch (sortField) {
         case 'date':
@@ -693,7 +701,7 @@ export default function TransactionsPage() {
       newCategoryName: '',
       bankId: t.bankId || '',
       creditCardId: t.creditCardId || '',
-      dueDate: t.dueDate ? format(parseISO(t.dueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      dueDate: t.creditCardId ? format(parseISO(t.competenceDate), 'yyyy-MM-dd') : (t.dueDate ? format(parseISO(t.dueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')),
       paymentDate: t.paymentDate ? format(parseISO(t.paymentDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       isPaid: t.status === 'PAID' || t.status === 'RECEIVED',
       isRecurring: t.isRecurring,
@@ -1307,65 +1315,70 @@ export default function TransactionsPage() {
                        <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
                          Parcelas Pagas
                        </label>
-                       <input 
-                         type="number" 
-                         min="0"
-                         max="120"
-                         value={formData.installmentStart}
-                         onChange={e => setFormData({...formData, installmentStart: e.target.value})}
-                         className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
-                       />
-                    </div>
+                        <input 
+                          type="number" 
+                          min="0"
+                          max="120"
+                          value={formData.installmentStart}
+                          onChange={e => setFormData({...formData, installmentStart: e.target.value})}
+                          className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                        />
+                     </div>
                  </div>
                  <div className="bg-muted/30 border border-border/40 p-3 rounded-xl text-xs text-muted-foreground font-medium">
                      {(() => {
-                       const total = Number(formData.installmentCount) || 1;
-                       const paid = Number(formData.installmentStart) || 0;
-                       const remaining = Math.max(0, total - paid);
-                       const start = paid + 1;
+                        const total = Number(formData.installmentCount) || 1;
+                        const paid = Number(formData.installmentStart) || 0;
+                        const remaining = Math.max(0, total - paid);
+                        const start = paid + 1;
 
-                       const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                       const baseDueDate = new Date(formData.dueDate + 'T12:00:00');
-                       
-                       let lastInstallmentDate = new Date();
-                       if (remaining > 0) {
-                         if (formData.installmentBasedOn === 'next_due_date') {
-                           lastInstallmentDate = addMonths(baseDueDate, remaining - 1);
-                         } else {
-                           let firstInstallmentDueDate = baseDueDate;
-                           const card = creditCards.find(c => c.id === formData.creditCardId);
-                           if (card) {
-                             const dateStr = format(baseDueDate, 'yyyy-MM-dd');
-                             firstInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
-                           }
-                           lastInstallmentDate = addMonths(firstInstallmentDueDate, remaining - 1);
-                         }
-                       }
-                       const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
+                        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                        const baseDueDate = new Date(formData.dueDate + 'T12:00:00');
+                        
+                        let firstCreatedDueDate = baseDueDate;
+                        if (formData.installmentBasedOn !== 'next_due_date') {
+                          const card = creditCards.find(c => c.id === formData.creditCardId);
+                          if (card) {
+                            const dateStr = format(baseDueDate, 'yyyy-MM-dd');
+                            firstCreatedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+                          }
+                        }
 
-                       if (remaining === 0) {
-                         return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
-                       }
-                       return (
-                         <div className="space-y-1">
-                           <div>
-                             {paid > 0 ? (
-                               <span>
-                                 Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
-                               </span>
-                             ) : (
-                               <span>
-                                 Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
-                               </span>
-                             )}
-                           </div>
-                           <div className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
-                             <span>📅 A última parcela ({total}ª) vencerá em</span>
-                             <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
-                           </div>
-                         </div>
-                       );
-                     })()}
+                        const firstAbsoluteDueDate = addMonths(firstCreatedDueDate, -paid);
+                        const lastAbsoluteDueDate = addMonths(firstCreatedDueDate, total - start);
+
+                        const firstInstallmentMonthStr = `${months[firstAbsoluteDueDate.getMonth()]} de ${firstAbsoluteDueDate.getFullYear()}`;
+                        const lastInstallmentMonthStr = `${months[lastAbsoluteDueDate.getMonth()]} de ${lastAbsoluteDueDate.getFullYear()}`;
+
+                        if (remaining === 0) {
+                          return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
+                        }
+                        return (
+                          <div className="space-y-1">
+                            <div>
+                              {paid > 0 ? (
+                                <span>
+                                  Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
+                                </span>
+                              ) : (
+                                <span>
+                                  Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground/80 mt-1.5 flex flex-col gap-1">
+                              <div>
+                                <span>📅 A 1ª parcela (1ª/{total}) {paid > 0 ? "venceu" : "vencerá"} em </span>
+                                <strong className="text-foreground">{firstInstallmentMonthStr}</strong>.
+                              </div>
+                              <div>
+                                <span>📅 A última parcela ({total}ª/{total}) vencerá em </span>
+                                <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                   </div>
                </div>
              )}
@@ -1397,29 +1410,89 @@ export default function TransactionsPage() {
 
       <Modal 
         isOpen={activeModal === 'confirm_delete'} 
-        onClose={() => setActiveModal(null)} 
+        onClose={() => {
+          setActiveModal(null);
+          setDeletingTransaction(null);
+        }} 
         title="Confirmar Exclusão"
       >
         <div className="space-y-4">
-           <p className="text-sm text-center py-4 text-foreground">
-             Tem certeza que deseja excluir esta transação? <br/>
-             <strong className="text-primary">"{deletingTransaction?.description}"</strong> <br/>
-             Esta ação não pode ser desfeita.
-           </p>
-          <div className="flex gap-3">
-             <button 
-              onClick={() => setActiveModal(null)}
-              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={handleDelete}
-              className="flex-1 bg-destructive text-foreground py-3 rounded-xl text-xs font-bold hover:bg-destructive/80 transition-all"
-            >
-              Excluir
-            </button>
-           </div>
+          {(() => {
+            const isInstallmentTx = deletingTransaction?.isInstallment && deletingTransaction?.installmentTotal && deletingTransaction.installmentTotal > 1;
+            
+            if (isInstallmentTx) {
+              return (
+                <>
+                  <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+                    A transação <strong className="text-primary">"{deletingTransaction?.description}"</strong> é parcelada. <br/>
+                    Deseja excluir todas as parcelas ou apenas a parcela deste mês?
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => {
+                        if (deletingTransaction) {
+                          deleteTransaction(deletingTransaction.id, true);
+                          setActiveModal(null);
+                          setDeletingTransaction(null);
+                        }
+                      }}
+                      className="w-full bg-rose-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir todas as parcelas
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (deletingTransaction) {
+                          deleteTransaction(deletingTransaction.id, false);
+                          setActiveModal(null);
+                          setDeletingTransaction(null);
+                        }
+                      }}
+                      className="w-full bg-amber-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-amber-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir apenas esta parcela
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setActiveModal(null);
+                        setDeletingTransaction(null);
+                      }}
+                      className="w-full py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              );
+            }
+
+            return (
+              <>
+                <p className="text-sm text-center py-4 text-foreground">
+                  Tem certeza que deseja excluir esta transação? <br/>
+                  <strong className="text-primary">"{deletingTransaction?.description}"</strong> <br/>
+                  Esta ação não pode ser desfeita.
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setActiveModal(null);
+                      setDeletingTransaction(null);
+                    }}
+                    className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleDelete}
+                    className="flex-1 bg-destructive text-foreground py-3 rounded-xl text-xs font-bold hover:bg-destructive/80 transition-all"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 

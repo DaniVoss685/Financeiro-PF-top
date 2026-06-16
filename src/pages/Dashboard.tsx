@@ -119,7 +119,7 @@ export default function DashboardPage() {
       newCategoryName: '',
       bankId: t.bankId || '',
       creditCardId: t.creditCardId || '',
-      dueDate: t.dueDate ? format(parseISO(t.dueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      dueDate: t.creditCardId ? format(parseISO(t.competenceDate), 'yyyy-MM-dd') : (t.dueDate ? format(parseISO(t.dueDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')),
       paymentDate: t.paymentDate ? format(parseISO(t.paymentDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
       isPaid: t.status === 'PAID' || t.status === 'RECEIVED',
       isRecurring: t.isRecurring || false,
@@ -505,11 +505,19 @@ export default function DashboardPage() {
 
           if (!alreadyHasInstance && !isSourceMonth) {
             const projectedDate = new Date(targetYear, targetMonthIdx, startDate.getDate());
+            let projectedDueDate = projectedDate.toISOString();
+            if (rt.creditCardId) {
+              const card = creditCards.find(c => c.id === rt.creditCardId);
+              if (card) {
+                const dateStr = format(projectedDate, 'yyyy-MM-dd');
+                projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
+              }
+            }
             list.push({
               ...rt,
               id: `recurring-${rt.id}-${targetYear}-${targetMonthIdx}`,
               competenceDate: projectedDate.toISOString(),
-              dueDate: projectedDate.toISOString(),
+              dueDate: projectedDueDate,
               paymentDate: undefined,
               status: 'OPEN' // Projected is always open
             });
@@ -548,7 +556,9 @@ export default function DashboardPage() {
     
     // Date Filtering
     let matchesDate = true;
-    const dateValue = tx[dateFieldToFilter];
+    const dateValue = (dateFieldToFilter === 'competenceDate' && tx.creditCardId) 
+      ? (tx.paymentDate || tx.dueDate) 
+      : tx[dateFieldToFilter];
     
     if (!dateValue && (dateFieldToFilter === 'dueDate' || dateFieldToFilter === 'paymentDate')) {
       if (selectedMonth !== 'ALL' || (dateRange.start && dateRange.end)) {
@@ -603,7 +613,7 @@ export default function DashboardPage() {
 
   const filteredForStats = getVisibleTransactions().filter(tx => {
     let matchesDate = true;
-    const txDate = new Date(tx.competenceDate);
+    const txDate = new Date(tx.paymentDate || (tx.creditCardId ? tx.dueDate : tx.competenceDate));
 
     if (dateRange.start && dateRange.end) {
       const start = new Date(dateRange.start + 'T00:00:00');
@@ -661,7 +671,7 @@ export default function DashboardPage() {
       const monthTransactions: any[] = [];
 
       transactions.forEach(t => {
-        const d = new Date(t.competenceDate);
+        const d = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
         if (d.getFullYear() === selectedYear && d.getMonth() === m) {
           if (t.type === 'INCOME') monthIncome += t.amount;
           else monthExpense += t.amount;
@@ -676,7 +686,7 @@ export default function DashboardPage() {
             const monthKey = `${selectedYear}-${(m + 1).toString().padStart(2, '0')}`;
             if (!rt.recurringExclusions?.includes(monthKey)) {
               const alreadyHasReal = transactions.some(t => {
-                const td = new Date(t.competenceDate);
+                const td = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
                 return t.description === rt.description && td.getMonth() === m && td.getFullYear() === selectedYear && t.id !== rt.id;
               });
 
@@ -687,8 +697,14 @@ export default function DashboardPage() {
                 else monthExpense += rt.amount;
                 
                 const projectedDate = new Date(selectedYear, m, rtStart.getDate());
-                let projectedDueDate = rt.dueDate;
-                if (rt.dueDate) {
+                let projectedDueDate = projectedDate.toISOString();
+                if (rt.creditCardId) {
+                  const card = creditCards.find(c => c.id === rt.creditCardId);
+                  if (card) {
+                    const dateStr = format(projectedDate, 'yyyy-MM-dd');
+                    projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
+                  }
+                } else if (rt.dueDate) {
                   const oDate = new Date(rt.dueDate);
                   projectedDueDate = new Date(selectedYear, m, oDate.getDate()).toISOString();
                 }
@@ -995,54 +1011,59 @@ export default function DashboardPage() {
                  </div>
               </div>
               <div className="bg-muted/30 border border-border/40 p-3 rounded-xl text-xs text-muted-foreground font-medium">
-                 {(() => {
-                   const card = creditCards.find(c => c.id === newTx.creditCardId);
-                   const total = Number(newTx.installmentCount) || 1;
-                   const paid = Number(newTx.installmentStart) || 0;
-                   const remaining = Math.max(0, total - paid);
-                   const start = paid + 1;
+                  {(() => {
+                    const card = creditCards.find(c => c.id === newTx.creditCardId);
+                    const total = Number(newTx.installmentCount) || 1;
+                    const paid = Number(newTx.installmentStart) || 0;
+                    const remaining = Math.max(0, total - paid);
+                    const start = paid + 1;
 
-                   const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-                   const baseDueDate = new Date(newTx.dueDate + 'T12:00:00');
-                   
-                   let lastInstallmentDate = new Date();
-                   if (remaining > 0) {
-                     if (newTx.installmentBasedOn === 'next_due_date') {
-                       lastInstallmentDate = addMonths(baseDueDate, total - start);
-                     } else {
-                       let firstInstallmentDueDate = baseDueDate;
-                       if (card) {
-                         const dateStr = format(baseDueDate, 'yyyy-MM-dd');
-                         firstInstallmentDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
-                       }
-                       lastInstallmentDate = addMonths(firstInstallmentDueDate, total - 1);
-                     }
-                   }
-                   const lastInstallmentMonthStr = `${months[lastInstallmentDate.getMonth()]} de ${lastInstallmentDate.getFullYear()}`;
+                    const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                    const baseDueDate = new Date(newTx.dueDate + 'T12:00:00');
+                    
+                    let firstCreatedDueDate = baseDueDate;
+                    if (newTx.installmentBasedOn !== 'next_due_date') {
+                      if (card) {
+                        const dateStr = format(baseDueDate, 'yyyy-MM-dd');
+                        firstCreatedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay);
+                      }
+                    }
 
-                   if (remaining === 0) {
-                     return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
-                   }
-                   return (
-                     <div className="space-y-1">
-                       <div>
-                         {paid > 0 ? (
-                           <span>
-                             Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
-                           </span>
-                         ) : (
-                           <span>
-                             Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
-                           </span>
-                         )}
-                       </div>
-                       <div className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
-                         <span>📅 A última parcela ({total}ª) vencerá em</span>
-                         <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
-                       </div>
-                     </div>
-                   );
-                 })()}
+                    const firstAbsoluteDueDate = addMonths(firstCreatedDueDate, -paid);
+                    const lastAbsoluteDueDate = addMonths(firstCreatedDueDate, total - start);
+
+                    const firstInstallmentMonthStr = `${months[firstAbsoluteDueDate.getMonth()]} de ${firstAbsoluteDueDate.getFullYear()}`;
+                    const lastInstallmentMonthStr = `${months[lastAbsoluteDueDate.getMonth()]} de ${lastAbsoluteDueDate.getFullYear()}`;
+
+                    if (remaining === 0) {
+                      return <span className="text-emerald-500 font-semibold">✓ Todas as parcelas já foram quitadas!</span>;
+                    }
+                    return (
+                      <div className="space-y-1">
+                        <div>
+                          {paid > 0 ? (
+                            <span>
+                              Faltam <strong className="text-primary">{remaining}</strong> parcelas pendentes. O sistema criará automaticamente da <strong className="text-foreground">{paid + 1}ª</strong> à <strong className="text-foreground">{total}ª</strong> parcela.
+                            </span>
+                          ) : (
+                            <span>
+                              Serão criadas <strong className="text-primary">{remaining}</strong> parcelas consecutivas no sistema (da 1ª à {total}ª).
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground/80 mt-1.5 flex flex-col gap-1">
+                          <div>
+                            <span>📅 A 1ª parcela (1ª/{total}) {paid > 0 ? "venceu" : "vencerá"} em </span>
+                            <strong className="text-foreground">{firstInstallmentMonthStr}</strong>.
+                          </div>
+                          <div>
+                            <span>📅 A última parcela ({total}ª/{total}) vencerá em </span>
+                            <strong className="text-foreground">{lastInstallmentMonthStr}</strong>.
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
               </div>
             </div>
           )}
@@ -1506,21 +1527,72 @@ export default function DashboardPage() {
 
       <Modal isOpen={activeModal === 'confirm_delete'} onClose={closeModal} title="Confirmar Remoção">
         <div className="space-y-4">
-          <p className="text-sm text-center py-4 text-foreground">
-            Deseja remover esta movimentação de <span className="text-primary font-bold">{selectedMonth}/{selectedYear}</span>?<br/>
-            <strong className="text-primary">"{deletingTransaction?.description}"</strong><br/>
-            {deletingTransaction?.id.toString().startsWith('recurring-') 
-              ? "Isso ocultará este item apenas neste mês. A regra de recorrência continuará ativa para os outros meses."
-              : "Esta ação excluirá permanentemente a transação."}
-          </p>
-          <div className="flex gap-3">
-            <button onClick={closeModal} className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all">
-              Cancelar
-            </button>
-            <button onClick={handleDelete} className="flex-1 bg-destructive text-foreground py-3 rounded-xl text-xs font-bold hover:bg-destructive/80 transition-all">
-              Remover
-            </button>
-          </div>
+          {(() => {
+            const isInstallmentTx = deletingTransaction?.isInstallment && deletingTransaction?.installmentTotal && deletingTransaction.installmentTotal > 1;
+            
+            if (isInstallmentTx) {
+              return (
+                <>
+                  <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+                    A movimentação <strong className="text-primary">"{deletingTransaction?.description}"</strong> é parcelada. <br/>
+                    Deseja excluir todas as parcelas ou apenas a parcela referente a este mês?
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => {
+                        if (deletingTransaction) {
+                          deleteTransaction(deletingTransaction.id, true);
+                          closeModal();
+                          setDeletingTransaction(null);
+                        }
+                      }}
+                      className="w-full bg-rose-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir todas as parcelas
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (deletingTransaction) {
+                          deleteTransaction(deletingTransaction.id, false);
+                          closeModal();
+                          setDeletingTransaction(null);
+                        }
+                      }}
+                      className="w-full bg-amber-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-amber-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir apenas esta parcela
+                    </button>
+                    <button 
+                      onClick={closeModal}
+                      className="w-full py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              );
+            }
+
+            return (
+              <>
+                <p className="text-sm text-center py-4 text-foreground">
+                  Deseja remover esta movimentação de <span className="text-primary font-bold">{selectedMonth}/{selectedYear}</span>?<br/>
+                  <strong className="text-primary">"{deletingTransaction?.description}"</strong><br/>
+                  {deletingTransaction?.id.toString().startsWith('recurring-') 
+                    ? "Isso ocultará este item apenas neste mês. A regra de recorrência continuará ativa para os outros meses."
+                    : "Esta ação excluirá permanentemente a transação."}
+                </p>
+                <div className="flex gap-3">
+                  <button onClick={closeModal} className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all">
+                    Cancelar
+                  </button>
+                  <button onClick={handleDelete} className="flex-1 bg-destructive text-foreground py-3 rounded-xl text-xs font-bold hover:bg-destructive/80 transition-all">
+                    Remover
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 
@@ -2229,7 +2301,7 @@ export default function DashboardPage() {
                             .filter(t => 
                               t.type === 'EXPENSE' && 
                               (goal.categoryId ? t.categoryId === goal.categoryId : true) && 
-                              new Date(t.competenceDate) >= firstDayOfMonth
+                              new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)) >= firstDayOfMonth
                             )
                             .reduce((acc, t) => acc + t.amount, 0);
                         })();
@@ -2305,7 +2377,7 @@ export default function DashboardPage() {
                         .map(c => ({
                           name: c.name,
                           amount: transactions
-                            .filter(t => t.categoryId === c.id && new Date(t.competenceDate).getMonth() === currentMonthIdx && new Date(t.competenceDate).getFullYear() === selectedYear)
+                            .filter(t => t.categoryId === c.id && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getMonth() === currentMonthIdx && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getFullYear() === selectedYear)
                             .reduce((acc, t) => acc + t.amount, 0)
                         }))
                         .sort((a, b) => b.amount - a.amount)[0];

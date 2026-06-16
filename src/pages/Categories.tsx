@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAppContext, Category } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { Modal } from '../components/ui/Modal';
+import { PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 import { formatCurrency, cn } from '../lib/utils';
 import { CategoryIcon, ICON_MAP } from '../components/CategoryIcon';
 import { 
@@ -157,7 +158,7 @@ export default function CategoriesPage() {
                           });
                           setIsModalOpen(true);
                         }}
-                        className="p-2 text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all hover:bg-primary/10 rounded-lg"
+                        className="p-2 text-muted-foreground hover:text-primary opacity-60 lg:opacity-0 lg:group-hover:opacity-100 transition-all hover:bg-primary/10 rounded-lg"
                       >
                         <Settings className="w-4 h-4" />
                       </button>
@@ -172,12 +173,26 @@ export default function CategoriesPage() {
 
                     {cat.monthlyGoal ? (
                       <div className="mt-auto pt-4 space-y-3">
-                        <div className="flex justify-between text-xs items-end">
-                          <span className="text-muted-foreground font-bold">Teto Mensal</span>
+                        <div 
+                          onClick={() => {
+                            setEditingCategoryId(cat.id);
+                            setNewCategory({
+                              name: cat.name,
+                              type: cat.type === 'BOTH' ? 'EXPENSE' : cat.type,
+                              color: cat.color,
+                              icon: cat.icon,
+                              monthlyGoal: cat.monthlyGoal ? cat.monthlyGoal.toString() : '',
+                              excludeFromAnalysis: !!cat.excludeFromAnalysis
+                            });
+                            setIsModalOpen(true);
+                          }}
+                          className="flex justify-between text-xs items-end cursor-pointer group/goal hover:text-primary transition-all"
+                        >
+                          <span className="text-muted-foreground font-bold group-hover/goal:text-primary">Teto Mensal</span>
                           <div className="text-right">
-                            <span className="font-display font-black text-foreground">{formatCurrency(spent)}</span>
+                            <span className="font-display font-black text-foreground group-hover/goal:text-primary">{formatCurrency(spent)}</span>
                             <span className="text-muted-foreground mx-1 text-[10px]">/</span>
-                            <span className="text-muted-foreground text-xs">{formatCurrency(cat.monthlyGoal)}</span>
+                            <span className="text-muted-foreground text-xs group-hover/goal:text-primary">{formatCurrency(cat.monthlyGoal)}</span>
                           </div>
                         </div>
                         <div className="w-full bg-muted/30 rounded-full h-2 overflow-hidden border border-foreground/5">
@@ -261,7 +276,7 @@ export default function CategoriesPage() {
                           });
                           setIsModalOpen(true);
                         }}
-                        className="p-2 text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-all hover:bg-primary/10 rounded-lg"
+                        className="p-2 text-muted-foreground hover:text-primary opacity-60 lg:opacity-0 lg:group-hover:opacity-100 transition-all hover:bg-primary/10 rounded-lg"
                       >
                         <Settings className="w-4 h-4" />
                       </button>
@@ -351,6 +366,15 @@ export default function CategoriesPage() {
               </div>
             </div>
           </div>
+
+          {newCategory.type === 'EXPENSE' && (
+            <PremiumCurrencyInput
+              label="Meta Mensal (Teto de Gastos)"
+              placeholder="Ex: 500,00 (Deixe em R$ 0,00 ou limpe para remover)"
+              value={newCategory.monthlyGoal ? parseFloat(newCategory.monthlyGoal) : 0}
+              onChange={(val) => setNewCategory({ ...newCategory, monthlyGoal: val > 0 ? val.toString() : '' })}
+            />
+          )}
 
           {/* Sugestões Rápidas */}
           <div className="space-y-2">

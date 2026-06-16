@@ -128,7 +128,7 @@ interface AppState {
   deleteBank: (id: string) => Promise<void>;
   addTransaction: (transaction: Omit<Transaction, 'id'>) => string;
   updateTransaction: (id: string, transaction: Partial<Transaction>) => Promise<void>;
-  deleteTransaction: (id: string) => Promise<void>;
+  deleteTransaction: (id: string, deleteAllInstallments?: boolean) => Promise<void>;
   addCategory: (category: Omit<Category, 'id' | 'isActive'>) => Promise<string>;
   updateCategory: (id: string, category: Partial<Category>) => Promise<void>;
   markTransactionAsPaid: (id: string, paymentDate: string) => Promise<void>;
@@ -1053,14 +1053,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     syncCreditCardLimits(updatedList);
   };
 
-  const deleteTransaction = async (id: string) => {
-    const t = transactions.find(tx => tx.id === id);
+  const deleteTransaction = async (id: string, deleteAllInstallments?: boolean) => {
+    const t = transactionsRef.current.find(tx => tx.id === id);
     if (!t) return;
 
-    if (t.status === 'PAID' || t.status === 'RECEIVED') {
+    let idsToDelete = [id];
+
+    if (deleteAllInstallments && t.isInstallment && t.installmentTotal && t.installmentTotal > 1) {
+      const baseDesc = t.description.replace(/\s*\(\d+\/\d+\)\s*/g, '').trim();
+      const related = transactionsRef.current.filter(tx => 
+        tx.isInstallment &&
+        tx.creditCardId === t.creditCardId &&
+        tx.bankId === t.bankId &&
+        tx.amount === t.amount &&
+        tx.installmentTotal === t.installmentTotal &&
+        tx.description.replace(/\s*\(\d+\/\d+\)\s*/g, '').trim() === baseDesc
+      );
+      idsToDelete = related.map(tx => tx.id);
+    }
+
+    const paidTxs = transactionsRef.current.filter(tx => idsToDelete.includes(tx.id) && (tx.status === 'PAID' || tx.status === 'RECEIVED'));
+    paidTxs.forEach(tx => {
       setBanks(prev => prev.map(bank => {
-        if (bank.id === t.bankId) {
-          const amount = t.type === 'INCOME' ? -t.amount : t.amount;
+        if (bank.id === tx.bankId) {
+          const amount = tx.type === 'INCOME' ? -tx.amount : tx.amount;
           const updatedBal = bank.currentBalance + amount;
           supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
           return { ...bank, currentBalance: updatedBal };
@@ -1069,26 +1085,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
 
       // Reverter impacto na meta se for despesa vinculada
-      if (t.linkedGoalId && t.type === 'EXPENSE') {
+      if (tx.linkedGoalId && tx.type === 'EXPENSE') {
         setGoals(prevGoals => prevGoals.map(goal => {
-          if (goal.id === t.linkedGoalId) {
-            const updatedAmt = Math.max(0, goal.currentAmount - t.amount);
+          if (goal.id === tx.linkedGoalId) {
+            const updatedAmt = Math.max(0, goal.currentAmount - tx.amount);
             supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
             return { ...goal, currentAmount: updatedAmt };
           }
           return goal;
         }));
       }
-    }
+    });
 
     // Deletar lembretes associados
-    setReminders(prev => prev.filter(r => r.transactionId !== id));
-    await supabase.from('reminders').delete().eq('transaction_id', id);
+    setReminders(prev => prev.filter(r => !idsToDelete.includes(r.transactionId)));
+    await supabase.from('reminders').delete().in('transaction_id', idsToDelete);
 
-    const remainingTransactions = transactionsRef.current.filter(tx => tx.id !== id);
+    const remainingTransactions = transactionsRef.current.filter(tx => !idsToDelete.includes(tx.id));
     transactionsRef.current = remainingTransactions;
     setTransactions(remainingTransactions);
-    await supabase.from('transactions').delete().eq('id', id);
+    
+    await supabase.from('transactions').delete().in('id', idsToDelete);
 
     // Sincronizar limites dos cartões declarativamente
     syncCreditCardLimits(remainingTransactions);
@@ -1131,7 +1148,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const type = updates.type !== undefined ? updates.type : (currentCat?.type || 'EXPENSE');
     const color = updates.color !== undefined ? updates.color : (currentCat?.color || '#BCF24B');
     const icon = updates.icon !== undefined ? updates.icon : (currentCat?.icon || 'utensils');
-    const monthlyGoal = updates.monthlyGoal !== undefined ? updates.monthlyGoal : currentCat?.monthlyGoal;
+    const monthlyGoal = 'monthlyGoal' in updates ? updates.monthlyGoal : currentCat?.monthlyGoal;
     const isActive = updates.isActive !== undefined ? updates.isActive : (currentCat?.isActive ?? true);
     const excludeFromAnalysis = updates.excludeFromAnalysis !== undefined ? updates.excludeFromAnalysis : currentCat?.excludeFromAnalysis;
 
@@ -1156,7 +1173,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       const customCats = settingsObj?.category_customizations || {};
       
-      customCats[id] = { name, color, icon, monthlyGoal, isActive, excludeFromAnalysis };
+      customCats[id] = { name, color, icon, monthlyGoal: monthlyGoal === undefined ? null : monthlyGoal, isActive, excludeFromAnalysis };
       
       const newSettings = {
         ...settingsObj,
@@ -1177,7 +1194,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         type,
         color,
         icon,
-        monthly_goal: monthlyGoal,
+        monthly_goal: monthlyGoal === undefined ? null : monthlyGoal,
         is_active: isActive,
         exclude_from_analysis: excludeFromAnalysis
       });

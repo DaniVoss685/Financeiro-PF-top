@@ -16,6 +16,8 @@ export default function CardsPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const [deletingCardName, setDeletingCardName] = useState('');
+  const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [deletingTransactionDesc, setDeletingTransactionDesc] = useState('');
 
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | null>(null);
   const [viewingFutureTxsCardId, setViewingFutureTxsCardId] = useState<string | null>(null);
@@ -693,9 +695,8 @@ export default function CardsPage() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      if (confirm(`Deseja realmente remover a compra "${t.description}"?`)) {
-                                        deleteTransaction(t.id);
-                                      }
+                                      setDeletingTransactionId(t.id);
+                                      setDeletingTransactionDesc(t.description);
                                     }}
                                     className="p-2 text-muted-foreground hover:text-red-500 hover:bg-rose-500/10 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-150 cursor-pointer"
                                     title="Excluir Compra"
@@ -976,6 +977,100 @@ export default function CardsPage() {
               Excluir
             </button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!deletingTransactionId}
+        onClose={() => {
+          setDeletingTransactionId(null);
+          setDeletingTransactionDesc('');
+        }}
+        title="Confirmar Exclusão de Compra"
+      >
+        <div className="space-y-4">
+          {(() => {
+            const targetTx = transactions.find(t => t.id === deletingTransactionId);
+            const isInstallmentTx = targetTx?.isInstallment && targetTx?.installmentTotal && targetTx.installmentTotal > 1;
+            
+            if (isInstallmentTx) {
+              return (
+                <>
+                  <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+                    A compra <strong className="text-primary">"{deletingTransactionDesc}"</strong> é parcelada. <br/>
+                    Deseja excluir todas as parcelas ou apenas a parcela deste mês?
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => {
+                        if (deletingTransactionId) {
+                          deleteTransaction(deletingTransactionId, true);
+                          setDeletingTransactionId(null);
+                          setDeletingTransactionDesc('');
+                        }
+                      }}
+                      className="w-full bg-rose-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir todas as parcelas
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (deletingTransactionId) {
+                          deleteTransaction(deletingTransactionId, false);
+                          setDeletingTransactionId(null);
+                          setDeletingTransactionDesc('');
+                        }
+                      }}
+                      className="w-full bg-amber-600 text-white py-3 rounded-xl text-xs font-bold hover:bg-amber-700 transition-all uppercase tracking-widest cursor-pointer"
+                    >
+                      Excluir apenas esta parcela
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setDeletingTransactionId(null);
+                        setDeletingTransactionDesc('');
+                      }}
+                      className="w-full py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              );
+            }
+
+            return (
+              <>
+                <p className="text-sm text-center py-4 text-foreground leading-relaxed">
+                  Tem certeza que deseja excluir a compra <strong className="text-primary">"{deletingTransactionDesc}"</strong> da fatura? <br/>
+                  Esta ação não pode ser desfeita.
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setDeletingTransactionId(null);
+                      setDeletingTransactionDesc('');
+                    }}
+                    className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all uppercase tracking-widest text-muted-foreground cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (deletingTransactionId) {
+                        deleteTransaction(deletingTransactionId);
+                        setDeletingTransactionId(null);
+                        setDeletingTransactionDesc('');
+                      }
+                    }}
+                    className="flex-1 bg-rose-500 text-white py-3 rounded-xl text-xs font-bold hover:bg-rose-600 transition-all uppercase tracking-widest cursor-pointer"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </Modal>
 

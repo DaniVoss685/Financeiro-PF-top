@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { PremiumCard } from '../components/ui/PremiumComponents';
-import { Sparkles, Send, Bot, User, ArrowRight, BrainCircuit, TrendingUp, TrendingDown, Target, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Sparkles, Send, Bot, User, ArrowRight, BrainCircuit, TrendingUp, TrendingDown, Target, ChevronLeft, ChevronRight, Calendar, ArrowUpRight, ArrowDownRight, Equal } from 'lucide-react';
 import { cn, formatCurrency } from '../lib/utils';
 import { useAppContext, Category } from '../store/AppContext';
-import { format, subDays, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { format, subDays, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CategoryIcon } from '../components/CategoryIcon';
+import { Modal } from '../components/ui/Modal';
 
 export default function AiInsightsPage() {
-  const { transactions, categories, banks, goals } = useAppContext();
+  const { transactions, categories, banks, goals, creditCards } = useAppContext();
   const [messages, setMessages] = useState([
     { role: 'ai', text: 'Olá! Sou seu assistente Noble Finance. Analisei suas transações e estou pronto para transformar seus dados em estratégia. Como posso te ajudar hoje?' }
   ]);
@@ -17,6 +18,8 @@ export default function AiInsightsPage() {
   const [activeTab, setActiveTab] = useState<'CHAT' | 'CATEGORIES'>('CHAT');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [viewingCategory, setViewingCategory] = useState<Category | null>(null);
+  const [viewingCategoryType, setViewingCategoryType] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');
 
   const handlePrevMonth = () => {
     if (selectedMonth === 0) {
@@ -53,10 +56,52 @@ export default function AiInsightsPage() {
         return false;
       }
 
-      const date = new Date(t.competenceDate);
+      const date = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
       return date.getMonth() === selectedMonth && date.getFullYear() === selectedYear;
     });
   }, [transactions, categories, banks, selectedMonth, selectedYear]);
+
+  const lastMonthTransactions = useMemo(() => {
+    const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+    const prevYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
+
+    return transactions.filter(t => {
+      const idStr = t.id.toString();
+      if (idStr.startsWith('recurring-') || idStr.startsWith('projected-')) {
+        return false;
+      }
+      
+      const cat = categories.find(c => c.id === t.categoryId);
+      if (cat?.excludeFromAnalysis) {
+        return false;
+      }
+
+      const bank = banks.find(b => b.id === t.bankId);
+      if (bank?.excludeFromAnalysis) {
+        return false;
+      }
+
+      const date = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
+      return date.getMonth() === prevMonth && date.getFullYear() === prevYear;
+    });
+  }, [transactions, categories, banks, selectedMonth, selectedYear]);
+
+  const lastMonthCategoryTotals = useMemo(() => {
+    const totals: Record<string, { income: number; expense: number }> = {};
+    lastMonthTransactions.forEach(t => {
+      const catId = t.categoryId || 'other';
+      const amount = Number(t.amount) || 0;
+      if (!totals[catId]) {
+        totals[catId] = { income: 0, expense: 0 };
+      }
+      if (t.type === 'INCOME') {
+        totals[catId].income += amount;
+      } else if (t.type === 'EXPENSE') {
+        totals[catId].expense += amount;
+      }
+    });
+    return totals;
+  }, [lastMonthTransactions]);
 
   const analysisData = useMemo(() => {
     let totalIncome = 0;
@@ -116,7 +161,7 @@ export default function AiInsightsPage() {
     const last15Days = subDays(now, 15);
 
     const monthTransactions = transactions.filter(t => 
-      isWithinInterval(new Date(t.competenceDate), { start: startOfCurrMonth, end: endOfCurrMonth })
+      isWithinInterval(new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)), { start: startOfCurrMonth, end: endOfCurrMonth })
     );
 
     const totalIncome = monthTransactions
@@ -128,11 +173,11 @@ export default function AiInsightsPage() {
       .reduce((acc, t) => acc + t.amount, 0);
 
     const weekExpenses = transactions
-      .filter(t => t.type === 'EXPENSE' && new Date(t.competenceDate).getTime() >= last7Days.getTime())
+      .filter(t => t.type === 'EXPENSE' && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getTime() >= last7Days.getTime())
       .reduce((acc, t) => acc + t.amount, 0);
 
     const biweeklyExpenses = transactions
-      .filter(t => t.type === 'EXPENSE' && new Date(t.competenceDate).getTime() >= last15Days.getTime())
+      .filter(t => t.type === 'EXPENSE' && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getTime() >= last15Days.getTime())
       .reduce((acc, t) => acc + t.amount, 0);
 
     const expensesByCategory = monthTransactions
@@ -286,7 +331,7 @@ export default function AiInsightsPage() {
 
         if (targetCategory) {
           const filteredTxs = transactions.filter(t => {
-            const txDate = new Date(t.competenceDate);
+            const txDate = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
             const inPeriod = txDate.getTime() >= startDate.getTime();
             const matchesCategory = t.categoryId === targetCategory!.id;
             return inPeriod && matchesCategory;
@@ -299,12 +344,12 @@ export default function AiInsightsPage() {
           } else {
             response = `Seus gastos na categoria **${targetCategory.name}** ${periodName} somam **${formatCurrency(total)}** em ${filteredTxs.length} lançamento(s):\n\n`;
             filteredTxs.forEach(t => {
-              response += `• **${t.description}**: ${formatCurrency(t.amount)} em ${format(new Date(t.competenceDate), "dd/MM/yyyy")}\n`;
+              response += `• **${t.description}**: ${formatCurrency(t.amount)} em ${format(new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)), "dd/MM/yyyy")}\n`;
             });
           }
         } else {
           const filteredTxs = transactions.filter(t => {
-            const txDate = new Date(t.competenceDate);
+            const txDate = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
             return txDate.getTime() >= startDate.getTime() && t.type === 'EXPENSE';
           });
           const total = filteredTxs.reduce((acc, t) => acc + t.amount, 0);
@@ -537,13 +582,24 @@ export default function AiInsightsPage() {
                     <div className="space-y-3.5">
                       {analysisData.expenses.map(({ category, amount, count }) => {
                         const percentage = analysisData.totalExpense > 0 ? (amount / analysisData.totalExpense) * 100 : 0;
+                        const prevAmount = lastMonthCategoryTotals[category.id]?.expense || 0;
+                        const hasPrev = prevAmount > 0;
+                        const diffPct = hasPrev ? ((amount - prevAmount) / prevAmount) * 100 : 0;
+                        
                         return (
-                          <div key={category.id} className="p-4 bg-muted/5 border border-border/30 rounded-xl hover:bg-muted/10 transition-colors">
+                          <div 
+                            key={category.id} 
+                            onClick={() => {
+                              setViewingCategory(category);
+                              setViewingCategoryType('EXPENSE');
+                            }}
+                            className="p-4 bg-muted/5 border border-border/30 rounded-xl hover:bg-muted/10 hover:border-rose-500/20 transition-all cursor-pointer group animate-fade-in"
+                          >
                             <div className="flex items-center justify-between mb-1.5">
                               <div className="flex items-center gap-3">
                                 <CategoryIcon icon={category.icon} color={category.color} size="sm" />
                                 <div>
-                                  <span className="font-semibold text-xs text-foreground block">{category.name}</span>
+                                  <span className="font-semibold text-xs text-foreground block group-hover:text-primary transition-colors">{category.name}</span>
                                   <span className="text-[10px] text-muted-foreground block">{count} {count === 1 ? 'transação' : 'transações'}</span>
                                 </div>
                               </div>
@@ -560,6 +616,32 @@ export default function AiInsightsPage() {
                                   backgroundColor: category.color || '#F59E0B' 
                                 }} 
                               />
+                            </div>
+                            <div className="flex items-center gap-1 mt-2 text-[10px] font-semibold border-t border-border/20 pt-2">
+                              {hasPrev ? (
+                                <>
+                                  {diffPct > 0 ? (
+                                    <span className="flex items-center text-rose-500 gap-0.5">
+                                      <ArrowUpRight className="w-3.5 h-3.5" /> +{diffPct.toFixed(1)}%
+                                    </span>
+                                  ) : diffPct < 0 ? (
+                                    <span className="flex items-center text-emerald-500 gap-0.5">
+                                      <ArrowDownRight className="w-3.5 h-3.5" /> {diffPct.toFixed(1)}%
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center text-muted-foreground gap-0.5">
+                                      <Equal className="w-3.5 h-3.5" /> 0%
+                                    </span>
+                                  )}
+                                  <span className="text-muted-foreground/75 font-normal">
+                                    vs mês ant. (mês anterior: {formatCurrency(prevAmount)})
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-primary font-medium">
+                                  Estreante (mês anterior: {formatCurrency(0)})
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
@@ -588,13 +670,24 @@ export default function AiInsightsPage() {
                     <div className="space-y-3.5">
                       {analysisData.incomes.map(({ category, amount, count }) => {
                         const percentage = analysisData.totalIncome > 0 ? (amount / analysisData.totalIncome) * 100 : 0;
+                        const prevAmount = lastMonthCategoryTotals[category.id]?.income || 0;
+                        const hasPrev = prevAmount > 0;
+                        const diffPct = hasPrev ? ((amount - prevAmount) / prevAmount) * 100 : 0;
+                        
                         return (
-                          <div key={category.id} className="p-4 bg-muted/5 border border-border/30 rounded-xl hover:bg-muted/10 transition-colors">
+                          <div 
+                            key={category.id} 
+                            onClick={() => {
+                              setViewingCategory(category);
+                              setViewingCategoryType('INCOME');
+                            }}
+                            className="p-4 bg-muted/5 border border-border/30 rounded-xl hover:bg-muted/10 hover:border-emerald-500/20 transition-all cursor-pointer group animate-fade-in"
+                          >
                             <div className="flex items-center justify-between mb-1.5">
                               <div className="flex items-center gap-3">
                                 <CategoryIcon icon={category.icon} color={category.color} size="sm" />
                                 <div>
-                                  <span className="font-semibold text-xs text-foreground block">{category.name}</span>
+                                  <span className="font-semibold text-xs text-foreground block group-hover:text-primary transition-colors">{category.name}</span>
                                   <span className="text-[10px] text-muted-foreground block">{count} {count === 1 ? 'transação' : 'transações'}</span>
                                 </div>
                               </div>
@@ -612,6 +705,32 @@ export default function AiInsightsPage() {
                                 }} 
                               />
                             </div>
+                            <div className="flex items-center gap-1 mt-2 text-[10px] font-semibold border-t border-border/20 pt-2">
+                              {hasPrev ? (
+                                <>
+                                  {diffPct > 0 ? (
+                                    <span className="flex items-center text-emerald-500 gap-0.5">
+                                      <ArrowUpRight className="w-3.5 h-3.5" /> +{diffPct.toFixed(1)}%
+                                    </span>
+                                  ) : diffPct < 0 ? (
+                                    <span className="flex items-center text-rose-500 gap-0.5">
+                                      <ArrowDownRight className="w-3.5 h-3.5" /> {diffPct.toFixed(1)}%
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center text-muted-foreground gap-0.5">
+                                      <Equal className="w-3.5 h-3.5" /> 0%
+                                    </span>
+                                  )}
+                                  <span className="text-muted-foreground/75 font-normal">
+                                    vs mês ant. (mês anterior: {formatCurrency(prevAmount)})
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-primary font-medium">
+                                  Estreante (mês anterior: {formatCurrency(0)})
+                                </span>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -623,6 +742,151 @@ export default function AiInsightsPage() {
           </PremiumCard>
         )}
       </div>
+
+      {viewingCategory && (
+        <Modal
+          isOpen={!!viewingCategory}
+          onClose={() => setViewingCategory(null)}
+          title={`Transações: ${viewingCategory.name}`}
+          className="max-w-2xl animate-scale-up"
+        >
+          {(() => {
+            const catTxs = filteredTransactionsForAnalysis
+              .filter(t => t.categoryId === viewingCategory.id && t.type === viewingCategoryType)
+              .sort((a, b) => new Date(a.paymentDate || (a.creditCardId ? a.dueDate : a.competenceDate)).getTime() - new Date(b.paymentDate || (b.creditCardId ? b.dueDate : b.competenceDate)).getTime());
+
+            const currentTotal = catTxs.reduce((sum, t) => sum + t.amount, 0);
+            const prevTotal = viewingCategoryType === 'EXPENSE' 
+              ? (lastMonthCategoryTotals[viewingCategory.id]?.expense || 0)
+              : (lastMonthCategoryTotals[viewingCategory.id]?.income || 0);
+
+            const hasPrev = prevTotal > 0;
+            const diffPct = hasPrev ? ((currentTotal - prevTotal) / prevTotal) * 100 : 0;
+            const diffNominal = currentTotal - prevTotal;
+
+            return (
+              <div className="space-y-6">
+                {/* Comparativo Mês a Mês no Topo */}
+                <div className="p-5 rounded-2xl border border-border bg-gradient-to-br from-card to-muted/10 relative overflow-hidden group shadow-sm">
+                  <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-3xl opacity-10" style={{ backgroundColor: viewingCategory.color }} />
+                  
+                  <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border/40">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Deste Mês</p>
+                      <h4 className={cn("text-2xl font-black mt-1 font-display", viewingCategoryType === 'EXPENSE' ? 'text-rose-500' : 'text-emerald-500')}>
+                        {formatCurrency(currentTotal)}
+                      </h4>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total do Mês Anterior</p>
+                      <h4 className="text-2xl font-black mt-1 text-muted-foreground font-display">
+                        {formatCurrency(prevTotal)}
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 flex items-center justify-between text-xs font-semibold">
+                    <span className="text-muted-foreground">Variação:</span>
+                    {hasPrev ? (
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full flex items-center gap-0.5 text-[10px] font-bold uppercase",
+                          viewingCategoryType === 'EXPENSE'
+                            ? (diffNominal > 0 ? "bg-rose-500/10 text-rose-500" : diffNominal < 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground")
+                            : (diffNominal > 0 ? "bg-emerald-500/10 text-emerald-500" : diffNominal < 0 ? "bg-rose-500/10 text-rose-500" : "bg-muted text-muted-foreground")
+                        )}>
+                          {diffNominal > 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : diffNominal < 0 ? <ArrowDownRight className="w-3.5 h-3.5" /> : <Equal className="w-3.5 h-3.5" />}
+                          {Math.abs(diffPct).toFixed(1)}%
+                        </span>
+                        <span className="text-muted-foreground/80 font-normal">
+                          ({diffNominal > 0 ? 'Aumento de' : diffNominal < 0 ? 'Economia de' : 'Igual a'} {formatCurrency(Math.abs(diffNominal))})
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-primary bg-primary/10 px-2 py-0.5 rounded-full text-[10px] uppercase font-bold">
+                        Categoria nova (Sem movimentação no mês anterior)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Listagem das Transações */}
+                <div className="space-y-3">
+                  <p className="text-xs font-black text-muted-foreground uppercase tracking-wider">
+                    Transações do Período ({catTxs.length})
+                  </p>
+
+                  <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
+                    {catTxs.length === 0 ? (
+                      <div className="text-center py-12 border border-dashed border-border/50 rounded-2xl bg-muted/5">
+                        <p className="text-xs text-muted-foreground">Nenhuma transação encontrada nesta categoria.</p>
+                      </div>
+                    ) : (
+                      catTxs.map(t => {
+                        const dateComp = parseISO(t.competenceDate);
+                        const dateDue = t.dueDate ? parseISO(t.dueDate) : null;
+                        const datePay = t.paymentDate ? parseISO(t.paymentDate) : null;
+                        
+                        const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
+                        
+                        const bank = banks.find(b => b.id === t.bankId);
+                        const card = creditCards?.find(c => c.id === t.creditCardId);
+                        const methodText = card ? `Cartão ${card.name}` : (bank ? bank.name : 'Outro');
+
+                        return (
+                          <div key={t.id} className="p-3.5 rounded-xl border border-border/40 bg-card hover:border-primary/20 transition-all flex justify-between items-center group">
+                            <div className="space-y-1 truncate">
+                              <p className="font-bold text-foreground text-xs truncate">{t.description}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-muted-foreground">
+                                <span>Ref: {format(dateComp, "dd/MM/yyyy", { locale: ptBR })}</span>
+                                <span>•</span>
+                                <span>Método: {methodText}</span>
+                                {isPaid && datePay && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-emerald-500 font-medium">Pago: {format(datePay, "dd/MM/yyyy", { locale: ptBR })}</span>
+                                  </>
+                                )}
+                                {!isPaid && dateDue && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-amber-500 font-medium">Vence: {format(dateDue, "dd/MM/yyyy", { locale: ptBR })}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={cn("font-black text-xs font-display", viewingCategoryType === 'EXPENSE' ? 'text-rose-500' : 'text-emerald-500')}>
+                                {formatCurrency(t.amount)}
+                              </span>
+                              <span className={cn(
+                                "text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
+                                isPaid ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                              )}>
+                                {isPaid ? 'Efetuado' : 'Pendente'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewingCategory(null)}
+                    className="px-4 py-2.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-bold rounded-xl transition-all cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
     </div>
   );
 }

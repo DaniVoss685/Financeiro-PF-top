@@ -1,16 +1,12 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Settings as SettingsIcon, LayoutGrid, Landmark, Bell, Shield, User } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Shield, User } from 'lucide-react';
 import { cn } from '../lib/utils';
-import CategoriesPage from './Categories';
-import BanksPage from './Banks';
 
 export default function SettingsPage() {
   const location = useLocation();
 
   const tabs = [
-    { id: 'categories', name: 'Categorias', icon: LayoutGrid, path: '/settings/categories' },
-    { id: 'banks', name: 'Contas Bancárias', icon: Landmark, path: '/settings/banks' },
     { id: 'profile', name: 'Perfil', icon: User, path: '/settings/profile' },
     { id: 'notifications', name: 'Notificações', icon: Bell, path: '/settings/notifications' },
     { id: 'security', name: 'Segurança', icon: Shield, path: '/settings/security' },

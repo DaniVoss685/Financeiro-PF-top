@@ -35,9 +35,7 @@ function AppContent() {
           <Route path="/goals" element={<GoalsPage />} />
           
           <Route path="/settings" element={<SettingsPage />}>
-             <Route index element={<Navigate to="categories" replace />} />
-             <Route path="categories" element={<CategoriesPage />} />
-             <Route path="banks" element={<BanksPage />} />
+             <Route index element={<Navigate to="profile" replace />} />
              <Route path="profile" element={<ProfileSettings />} />
              <Route path="notifications" element={<NotificationsSettings />} />
              <Route path="security" element={<SecuritySettings />} />
