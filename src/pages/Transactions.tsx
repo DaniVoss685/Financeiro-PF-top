@@ -27,6 +27,25 @@ function calculateCardDueDate(purchaseDateStr: string, closingDay: number, dueDa
   return new Date(dueYear, dueMonth, dueDay, 12, 0, 0);
 }
 
+function getCardDueDatesOptions(dueDay: number, closingDay: number = 5) {
+  const options = [];
+  const now = new Date();
+  
+  // Calcular a primeira fatura válida para uma compra feita hoje
+  const dateStr = format(now, 'yyyy-MM-dd');
+  const firstValid = calculateCardDueDate(dateStr, closingDay, dueDay);
+
+  const monthsNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(firstValid.getFullYear(), firstValid.getMonth() + i, dueDay);
+    const val = format(d, 'yyyy-MM-dd');
+    const label = `${dueDay} de ${monthsNames[d.getMonth()]} de ${d.getFullYear()}`;
+    options.push({ value: val, label });
+  }
+  return options;
+}
+
 const TransactionTable = ({ 
   data, 
   type, 
@@ -176,9 +195,15 @@ const TransactionTable = ({
                       <div className="flex flex-col">
                         <p className="font-bold text-base text-foreground/90 leading-tight">{t.description}</p>
                         {t.creditCardId && (
-                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-lg w-fit">
-                            💳 Esta despesa está na fatura do cartão
-                          </span>
+                          t.isRecurring ? (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-lg w-fit">
+                              🔄 Assinatura recorrente no cartão (Sem consumir limite)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-lg w-fit">
+                              💳 Esta despesa está na fatura do cartão
+                            </span>
+                          )
                         )}
                         {t.isInstallment && t.installmentTotal && t.installmentCurrent && (
                           <span className="text-[10px] text-muted-foreground/80 font-semibold tracking-tight mt-1 animate-in fade-in duration-200">
@@ -455,6 +480,22 @@ export default function TransactionsPage() {
     affectLimitImmediately: true
   });
 
+  React.useEffect(() => {
+    if (formData.isInstallment && formData.creditCardId) {
+      if (formData.installmentBasedOn !== 'next_due_date') {
+        setFormData(prev => ({ ...prev, installmentBasedOn: 'next_due_date' }));
+        return;
+      }
+      const card = creditCards.find(cc => cc.id === formData.creditCardId);
+      if (card) {
+        const options = getCardDueDatesOptions(card.dueDay, card.closingDay);
+        if (!options.some(opt => opt.value === formData.dueDate)) {
+          setFormData(prev => ({ ...prev, dueDate: options[0].value }));
+        }
+      }
+    }
+  }, [formData.isInstallment, formData.installmentBasedOn, formData.creditCardId, creditCards]);
+
   // Income Sort State
   const [sortFieldIncome, setSortFieldIncome] = useState<string>('date');
   const [sortOrderIncome, setSortOrderIncome] = useState<'asc' | 'desc'>('desc');
@@ -545,8 +586,11 @@ export default function TransactionsPage() {
       recurringTxs.forEach(rt => {
         const rtStart = new Date(rt.competenceDate);
         
-        // Iterate through months between start and end
-        let current = new Date(startRange.getFullYear(), startRange.getMonth(), 1);
+        // Limitar a simulação a começar no máximo 12 meses antes de startRange
+        const limitDate = new Date(startRange.getFullYear(), startRange.getMonth() - 12, 1);
+        const simStartDate = rtStart > limitDate ? rtStart : limitDate;
+        
+        let current = new Date(simStartDate.getFullYear(), simStartDate.getMonth(), 1);
         while (current <= endRange) {
           const m = current.getMonth();
           const y = current.getFullYear();
@@ -561,6 +605,7 @@ export default function TransactionsPage() {
           if (y > rtStart.getFullYear() || (y === rtStart.getFullYear() && m >= rtStart.getMonth())) {
             // Broader existence check: same description in same month
             const alreadyExists = transactions.some(t => {
+              if (t.id.toString().startsWith('recurring-') || t.id.toString().startsWith('projected-')) return false;
               const tDate = new Date(t.competenceDate);
               return t.description === rt.description && 
                      tDate.getMonth() === m && 
@@ -579,6 +624,9 @@ export default function TransactionsPage() {
                    const dateStr = format(projectedDate, 'yyyy-MM-dd');
                    projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
                  }
+               } else if (rt.dueDate) {
+                 const oDate = new Date(rt.dueDate);
+                 projectedDueDate = new Date(y, m, oDate.getDate()).toISOString();
                }
                list.push({
                  ...rt,
@@ -1208,90 +1256,163 @@ export default function TransactionsPage() {
               />
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={cn("grid gap-4", formData.creditCardId ? "grid-cols-1" : "grid-cols-2")}>
                <div>
-                 <PremiumDatePicker 
-                   label={
-                     formData.isInstallment && formData.installmentBasedOn === 'next_due_date'
-                       ? "Vencimento da Próxima Parcela"
-                       : (formData.creditCardId ? "Data da Compra" : "Vencimento")
-                   }
-                  value={formData.dueDate}
-                  onChange={val => setFormData({...formData, dueDate: val})}
-                 />
+                  {formData.isInstallment && formData.installmentBasedOn === 'next_due_date' && formData.creditCardId ? (() => {
+                    const card = creditCards.find(cc => cc.id === formData.creditCardId);
+                    return card ? (
+                      <PremiumSelect
+                        label="Vencimento da Próxima Parcela"
+                        options={getCardDueDatesOptions(card.dueDay, card.closingDay)}
+                        value={formData.dueDate}
+                        onChange={val => setFormData({ ...formData, dueDate: val })}
+                        disableSort={true}
+                      />
+                    ) : null;
+                  })() : (
+                    <PremiumDatePicker 
+                      label={
+                        formData.isInstallment && formData.installmentBasedOn === 'next_due_date'
+                          ? "Vencimento da Próxima Parcela"
+                          : (formData.creditCardId ? "Data da Compra" : "Vencimento")
+                      }
+                      value={formData.dueDate}
+                      onChange={val => setFormData({...formData, dueDate: val})}
+                    />
+                  )}
                </div>
-               <div className={cn(!formData.isPaid && "opacity-50 pointer-events-none")}>
-                 <PremiumDatePicker 
-                  label="Pagamento"
-                  value={formData.isPaid ? formData.paymentDate : ''}
-                  onChange={val => setFormData({...formData, paymentDate: val})}
-                 />
-               </div>
+               {!formData.creditCardId && (
+                 <div className={cn(!formData.isPaid && "opacity-50 pointer-events-none")}>
+                   <PremiumDatePicker 
+                    label="Pagamento"
+                    value={formData.isPaid ? formData.paymentDate : ''}
+                    onChange={val => setFormData({...formData, paymentDate: val})}
+                   />
+                 </div>
+               )}
             </div>
 
             <div className="flex flex-col gap-3">
-               <div 
-                      tabIndex={formData.creditCardId ? -1 : 0}
-                      role="checkbox"
-                      aria-checked={formData.isPaid}
-                      className={cn(
-                        "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
-                        formData.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
-                      )} 
-                      onClick={() => {
-                        if (!formData.creditCardId) {
-                          setFormData({...formData, isPaid: !formData.isPaid});
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (!formData.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
-                          e.preventDefault();
-                          setFormData(prev => ({...prev, isPaid: !prev.isPaid}));
-                        }
-                      }}>
-                 <div className="flex flex-col">
-                   <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
-                   <span className="text-[10px] text-muted-foreground">
-                     {formData.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
-                   </span>
-                 </div>
-                 <div className={cn(
-                   "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                   formData.isPaid ? "bg-primary" : "bg-muted"
-                 )}>
-                   <div className={cn(
-                     "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                     formData.isPaid ? "translate-x-5" : "translate-x-0"
-                   )} />
-                 </div>
-               </div>
+               {!formData.creditCardId && (
+                 <div 
+                        tabIndex={formData.creditCardId ? -1 : 0}
+                        role="checkbox"
+                        aria-checked={formData.isPaid}
+                        className={cn(
+                          "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                          formData.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                        )} 
+                        onClick={() => {
+                          if (!formData.creditCardId) {
+                            setFormData({...formData, isPaid: !formData.isPaid});
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (!formData.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
+                            e.preventDefault();
+                            setFormData(prev => ({...prev, isPaid: !prev.isPaid}));
+                          }
+                        }}>
+                   <div className="flex flex-col">
+                     <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
+                     <span className="text-[10px] text-muted-foreground">
+                       {formData.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
+                     </span>
+                   </div>
+                    <div className={cn(
+                      "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
+                      formData.isPaid ? "bg-primary" : "bg-muted"
+                    )}>
+                      <div className={cn(
+                        "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                        formData.isPaid ? "translate-x-5" : "translate-x-0"
+                      )} />
+                    </div>
+                  </div>
+               )}
 
                {formData.type === 'EXPENSE' && (
-                 <div 
-                       tabIndex={0}
-                       role="checkbox"
-                       aria-checked={formData.isInstallment}
-                       className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none" 
-                       onClick={() => setFormData({...formData, isInstallment: !formData.isInstallment})}
-                       onKeyDown={(e) => {
-                         if (e.key === ' ' || e.key === 'Enter') {
-                           e.preventDefault();
-                           setFormData(prev => ({...prev, isInstallment: !prev.isInstallment}));
-                         }
-                       }}
-                  >
-                   <div className="flex flex-col">
-                     <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
-                     <span className="text-[10px] text-muted-foreground">Configurar lançamentos parcelados?</span>
-                   </div>
-                   <div className={cn(
-                     "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                     formData.isInstallment ? "bg-primary" : "bg-muted"
-                   )}>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                   {/* Compra Parcelada */}
+                   <div 
+                     tabIndex={formData.isRecurring ? -1 : 0}
+                     role="checkbox"
+                     aria-checked={formData.isInstallment}
+                     className={cn(
+                       "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                       formData.isRecurring ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                     )}
+                     onClick={() => {
+                       if (!formData.isRecurring) {
+                         setFormData({ ...formData, isInstallment: !formData.isInstallment });
+                       }
+                     }}
+                     onKeyDown={(e) => {
+                       if (!formData.isRecurring && (e.key === ' ' || e.key === 'Enter')) {
+                         e.preventDefault();
+                         setFormData(prev => ({ ...prev, isInstallment: !prev.isInstallment }));
+                       }
+                     }}
+                   >
+                     <div className="flex flex-col pr-1">
+                       <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
+                       <span className="text-[10px] text-muted-foreground mt-0.5">Configurar parcelados?</span>
+                     </div>
                      <div className={cn(
-                       "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                       formData.isInstallment ? "translate-x-5" : "translate-x-0"
-                     )} />
+                       "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                       formData.isInstallment ? "bg-primary" : "bg-muted"
+                     )}>
+                       <div className={cn(
+                         "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                         formData.isInstallment ? "translate-x-5" : "translate-x-0"
+                       )} />
+                     </div>
+                   </div>
+
+                   {/* Repetir Lançamento (Recorrência) */}
+                   <div 
+                     tabIndex={formData.isInstallment ? -1 : 0}
+                     role="checkbox"
+                     aria-checked={formData.isRecurring}
+                     className={cn(
+                       "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                       formData.isInstallment ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                     )}
+                     onClick={() => {
+                       if (!formData.isInstallment) {
+                         const nextVal = !formData.isRecurring;
+                         setFormData({ 
+                           ...formData, 
+                           isRecurring: nextVal,
+                           affectLimitImmediately: nextVal ? false : true
+                         });
+                       }
+                     }}
+                     onKeyDown={(e) => {
+                       if (!formData.isInstallment && (e.key === ' ' || e.key === 'Enter')) {
+                         e.preventDefault();
+                         const nextVal = !formData.isRecurring;
+                         setFormData(prev => ({ 
+                           ...prev, 
+                           isRecurring: nextVal,
+                           affectLimitImmediately: nextVal ? false : true
+                         }));
+                       }
+                     }}
+                   >
+                     <div className="flex flex-col pr-1">
+                       <span className="text-xs font-semibold tracking-tight text-foreground/90">Repetir Mensalmente</span>
+                       <span className="text-[10px] text-muted-foreground mt-0.5">Assinaturas recorrentes?</span>
+                     </div>
+                     <div className={cn(
+                       "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                       formData.isRecurring ? "bg-primary" : "bg-muted"
+                     )}>
+                       <div className={cn(
+                         "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                         formData.isRecurring ? "translate-x-5" : "translate-x-0"
+                       )} />
+                     </div>
                    </div>
                  </div>
                )}

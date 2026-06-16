@@ -56,6 +56,25 @@ function calculateCardDueDate(purchaseDateStr: string, closingDay: number, dueDa
   return new Date(dueYear, dueMonth, dueDay, 12, 0, 0);
 }
 
+function getCardDueDatesOptions(dueDay: number, closingDay: number = 5) {
+  const options = [];
+  const now = new Date();
+  
+  // Calcular a primeira fatura válida para uma compra feita hoje
+  const dateStr = format(now, 'yyyy-MM-dd');
+  const firstValid = calculateCardDueDate(dateStr, closingDay, dueDay);
+
+  const monthsNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(firstValid.getFullYear(), firstValid.getMonth() + i, dueDay);
+    const val = format(d, 'yyyy-MM-dd');
+    const label = `${dueDay} de ${monthsNames[d.getMonth()]} de ${d.getFullYear()}`;
+    options.push({ value: val, label });
+  }
+  return options;
+}
+
 const expenses = [
   { name: 'Aluguel', value: '95%', Icon: Home },
   { name: 'Supermercado', value: '77%', Icon: ShoppingBag },
@@ -248,6 +267,22 @@ export default function DashboardPage() {
       });
     }
   };
+
+  React.useEffect(() => {
+    if (newTx.isInstallment && newTx.creditCardId) {
+      if (newTx.installmentBasedOn !== 'next_due_date') {
+        setNewTx(prev => ({ ...prev, installmentBasedOn: 'next_due_date' }));
+        return;
+      }
+      const card = creditCards.find(cc => cc.id === newTx.creditCardId);
+      if (card) {
+        const options = getCardDueDatesOptions(card.dueDay, card.closingDay);
+        if (!options.some(opt => opt.value === newTx.dueDate)) {
+          setNewTx(prev => ({ ...prev, dueDate: options[0].value }));
+        }
+      }
+    }
+  }, [newTx.isInstallment, newTx.installmentBasedOn, newTx.creditCardId, creditCards]);
 
   const isTxFormValid = 
     newTx.description.trim() !== '' &&
@@ -483,28 +518,39 @@ export default function DashboardPage() {
     
     if (selectedMonth !== 'ALL') {
       recurringTxs.forEach(rt => {
-        // Skip if this month is specifically excluded
-        if (rt.recurringExclusions?.includes(monthYearKey)) return;
+        const rtStart = new Date(rt.competenceDate);
+        
+        // Limitar a data de início da simulação para no máximo 12 meses antes do mês selecionado
+        const limitDate = new Date(targetYear, targetMonthIdx - 12, 1);
+        const simStartDate = rtStart > limitDate ? rtStart : limitDate;
+        
+        let current = new Date(simStartDate.getFullYear(), simStartDate.getMonth(), 1);
+        const endSimDate = new Date(targetYear, targetMonthIdx, 1); // Simula competências até o mês selecionado
+        
+        while (current <= endSimDate) {
+          const m = current.getMonth();
+          const y = current.getFullYear();
+          const currentMonthYearKey = `${y}-${(m + 1).toString().padStart(2, '0')}`;
+          
+          if (rt.recurringExclusions?.includes(currentMonthYearKey)) {
+            current = addMonths(current, 1);
+            continue;
+          }
 
-        const startDate = new Date(rt.competenceDate);
-        const startMonthIdx = startDate.getMonth();
-        const startYear = startDate.getFullYear();
-
-        // Check if target month is after or same as start month
-        if (targetYear > startYear || (targetYear === startYear && targetMonthIdx >= startMonthIdx)) {
-          // Check if there is already a real transaction with the same description in this month
+          // Check if there is already a real transaction with the same description in this month of competence
           const alreadyHasInstance = transactions.some(t => {
+            if (t.id.toString().startsWith('recurring-') || t.id.toString().startsWith('projected-')) return false;
             const tDate = new Date(t.competenceDate);
             return t.description === rt.description && 
-                   tDate.getMonth() === targetMonthIdx &&
-                   tDate.getFullYear() === targetYear &&
+                   tDate.getMonth() === m &&
+                   tDate.getFullYear() === y &&
                    t.id !== rt.id;
           });
 
-          const isSourceMonth = startMonthIdx === targetMonthIdx && startYear === targetYear;
+          const isSourceMonth = rtStart.getMonth() === m && rtStart.getFullYear() === y;
 
           if (!alreadyHasInstance && !isSourceMonth) {
-            const projectedDate = new Date(targetYear, targetMonthIdx, startDate.getDate());
+            const projectedDate = new Date(y, m, rtStart.getDate());
             let projectedDueDate = projectedDate.toISOString();
             if (rt.creditCardId) {
               const card = creditCards.find(c => c.id === rt.creditCardId);
@@ -512,16 +558,26 @@ export default function DashboardPage() {
                 const dateStr = format(projectedDate, 'yyyy-MM-dd');
                 projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
               }
+            } else if (rt.dueDate) {
+              const oDate = new Date(rt.dueDate);
+              projectedDueDate = new Date(y, m, oDate.getDate()).toISOString();
             }
-            list.push({
+
+            const virtualTx = {
               ...rt,
-              id: `recurring-${rt.id}-${targetYear}-${targetMonthIdx}`,
+              id: `recurring-${rt.id}-${y}-${m}`,
               competenceDate: projectedDate.toISOString(),
               dueDate: projectedDueDate,
               paymentDate: undefined,
               status: 'OPEN' // Projected is always open
-            });
+            };
+
+            const d = new Date(virtualTx.paymentDate || (virtualTx.creditCardId ? virtualTx.dueDate : virtualTx.competenceDate));
+            if (d.getFullYear() === targetYear && d.getMonth() === targetMonthIdx) {
+              list.push(virtualTx);
+            }
           }
+          current = addMonths(current, 1);
         }
       });
     }
@@ -661,6 +717,69 @@ export default function DashboardPage() {
       }
     });
 
+    const allProjectedTxs: any[] = [];
+    const recurringTxs = transactions.filter(t => t.isRecurring);
+
+    recurringTxs.forEach(rt => {
+      const rtStart = new Date(rt.competenceDate);
+      
+      // Limitar a data de início da simulação para no máximo 12 meses antes do início de selectedYear
+      const limitDate = new Date(selectedYear, -12, 1);
+      const simStartDate = rtStart > limitDate ? rtStart : limitDate;
+      
+      let current = new Date(simStartDate.getFullYear(), simStartDate.getMonth(), 1);
+      // Simular competências até o final do selectedYear
+      const endSimDate = new Date(selectedYear, 11, 31);
+
+      while (current <= endSimDate) {
+        const m = current.getMonth();
+        const y = current.getFullYear();
+        const monthKey = `${y}-${(m + 1).toString().padStart(2, '0')}`;
+        
+        if (rt.recurringExclusions?.includes(monthKey)) {
+          current = addMonths(current, 1);
+          continue;
+        }
+
+        const alreadyHasReal = transactions.some(t => {
+          if (t.id.toString().startsWith('recurring-') || t.id.toString().startsWith('projected-')) return false;
+          const tDate = new Date(t.competenceDate);
+          return t.description === rt.description && 
+                 tDate.getMonth() === m && 
+                 tDate.getFullYear() === y && 
+                 t.id !== rt.id;
+        });
+
+        const isSourceMonth = rtStart.getMonth() === m && rtStart.getFullYear() === y;
+
+        if (!alreadyHasReal && !isSourceMonth) {
+          const projectedDate = new Date(y, m, rtStart.getDate());
+          let projectedDueDate = projectedDate.toISOString();
+          if (rt.creditCardId) {
+            const card = creditCards.find(c => c.id === rt.creditCardId);
+            if (card) {
+              const dateStr = format(projectedDate, 'yyyy-MM-dd');
+              projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
+            }
+          } else if (rt.dueDate) {
+            const oDate = new Date(rt.dueDate);
+            projectedDueDate = new Date(y, m, oDate.getDate()).toISOString();
+          }
+
+          allProjectedTxs.push({
+            ...rt,
+            id: `projected-${rt.id}-${y}-${m}`,
+            competenceDate: projectedDate.toISOString(),
+            dueDate: projectedDueDate,
+            paymentDate: undefined,
+            status: 'OPEN',
+            isProjected: true
+          });
+        }
+        current = addMonths(current, 1);
+      }
+    });
+
     for (let m = 0; m < 12; m++) {
       const isPast = selectedYear < now.getFullYear() || (selectedYear === now.getFullYear() && m < now.getMonth());
       const isCurrent = selectedYear === now.getFullYear() && m === now.getMonth();
@@ -680,46 +799,12 @@ export default function DashboardPage() {
       });
 
       if (isFuture || isCurrent) {
-        transactions.filter(t => t.isRecurring).forEach(rt => {
-          const rtStart = new Date(rt.competenceDate);
-          if (selectedYear > rtStart.getFullYear() || (selectedYear === rtStart.getFullYear() && m >= rtStart.getMonth())) {
-            const monthKey = `${selectedYear}-${(m + 1).toString().padStart(2, '0')}`;
-            if (!rt.recurringExclusions?.includes(monthKey)) {
-              const alreadyHasReal = transactions.some(t => {
-                const td = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
-                return t.description === rt.description && td.getMonth() === m && td.getFullYear() === selectedYear && t.id !== rt.id;
-              });
-
-              const isSourceMonth = rtStart.getMonth() === m && rtStart.getFullYear() === selectedYear;
-
-              if (!alreadyHasReal && !isSourceMonth) {
-                if (rt.type === 'INCOME') monthIncome += rt.amount;
-                else monthExpense += rt.amount;
-                
-                const projectedDate = new Date(selectedYear, m, rtStart.getDate());
-                let projectedDueDate = projectedDate.toISOString();
-                if (rt.creditCardId) {
-                  const card = creditCards.find(c => c.id === rt.creditCardId);
-                  if (card) {
-                    const dateStr = format(projectedDate, 'yyyy-MM-dd');
-                    projectedDueDate = calculateCardDueDate(dateStr, card.closingDay, card.dueDay).toISOString();
-                  }
-                } else if (rt.dueDate) {
-                  const oDate = new Date(rt.dueDate);
-                  projectedDueDate = new Date(selectedYear, m, oDate.getDate()).toISOString();
-                }
-
-                monthTransactions.push({
-                  ...rt,
-                  id: `projected-${rt.id}-${m}`,
-                  competenceDate: projectedDate.toISOString(),
-                  dueDate: projectedDueDate,
-                  paymentDate: undefined,
-                  status: 'OPEN',
-                  isProjected: true
-                });
-              }
-            }
+        allProjectedTxs.forEach(pt => {
+          const d = new Date(pt.paymentDate || (pt.creditCardId ? pt.dueDate : pt.competenceDate));
+          if (d.getFullYear() === selectedYear && d.getMonth() === m) {
+            if (pt.type === 'INCOME') monthIncome += pt.amount;
+            else monthExpense += pt.amount;
+            monthTransactions.push(pt);
           }
         });
       }
@@ -858,90 +943,163 @@ export default function DashboardPage() {
             </div>
           )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={cn("grid gap-4", newTx.creditCardId ? "grid-cols-1" : "grid-cols-2")}>
               <div>
-                <PremiumDatePicker 
-                  label={
-                    newTx.isInstallment && newTx.installmentBasedOn === 'next_due_date'
-                      ? "Vencimento da Próxima Parcela"
-                      : (newTx.creditCardId ? "Data da Compra" : "Vencimento")
-                  }
-                  value={newTx.dueDate}
-                  onChange={val => setNewTx({...newTx, dueDate: val})}
-                />
+                {newTx.isInstallment && newTx.installmentBasedOn === 'next_due_date' && newTx.creditCardId ? (() => {
+                  const card = creditCards.find(cc => cc.id === newTx.creditCardId);
+                  return card ? (
+                    <PremiumSelect
+                      label="Vencimento da Próxima Parcela"
+                      options={getCardDueDatesOptions(card.dueDay, card.closingDay)}
+                      value={newTx.dueDate}
+                      onChange={val => setNewTx({ ...newTx, dueDate: val })}
+                      disableSort={true}
+                    />
+                  ) : null;
+                })() : (
+                  <PremiumDatePicker 
+                    label={
+                      newTx.isInstallment && newTx.installmentBasedOn === 'next_due_date'
+                        ? "Vencimento da Próxima Parcela"
+                        : (newTx.creditCardId ? "Data da Compra" : "Vencimento")
+                    }
+                    value={newTx.dueDate}
+                    onChange={val => setNewTx({...newTx, dueDate: val})}
+                  />
+                )}
               </div>
-              <div className={cn(!newTx.isPaid && "opacity-50 pointer-events-none")}>
-                <PremiumDatePicker 
-                  label="Pagamento"
-                  value={newTx.isPaid ? newTx.paymentDate : ''}
-                  onChange={val => setNewTx({...newTx, paymentDate: val})}
-                />
-              </div>
+              {!newTx.creditCardId && (
+                <div className={cn(!newTx.isPaid && "opacity-50 pointer-events-none")}>
+                  <PremiumDatePicker 
+                    label="Pagamento"
+                    value={newTx.isPaid ? newTx.paymentDate : ''}
+                    onChange={val => setNewTx({...newTx, paymentDate: val})}
+                  />
+                </div>
+              )}
             </div>
           
           <div className="space-y-3 pt-2">
-             <div 
-                  tabIndex={newTx.creditCardId ? -1 : 0}
+             {!newTx.creditCardId && (
+               <div 
+                    tabIndex={newTx.creditCardId ? -1 : 0}
+                    role="checkbox"
+                    aria-checked={newTx.isPaid}
+                    className={cn(
+                      "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                      newTx.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                    )} 
+                    onClick={() => {
+                      if (!newTx.creditCardId) {
+                        setNewTx({...newTx, isPaid: !newTx.isPaid});
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (!newTx.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
+                        e.preventDefault();
+                        setNewTx(prev => ({...prev, isPaid: !prev.isPaid}));
+                      }
+                    }}>
+                 <div className="flex flex-col">
+                   <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
+                   <span className="text-[10px] text-muted-foreground">
+                     {newTx.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
+                   </span>
+                 </div>
+                 <div className={cn(
+                   "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
+                   newTx.isPaid ? "bg-primary" : "bg-muted"
+                 )}>
+                   <div className={cn(
+                     "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                     newTx.isPaid ? "translate-x-5" : "translate-x-0"
+                   )} />
+                 </div>
+               </div>
+             )}
+
+            {activeModal === 'new_transaction_expense' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Compra Parcelada */}
+                <div 
+                  tabIndex={newTx.isRecurring ? -1 : 0}
                   role="checkbox"
-                  aria-checked={newTx.isPaid}
+                  aria-checked={newTx.isInstallment}
                   className={cn(
                     "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
-                    newTx.creditCardId ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
-                  )} 
+                    newTx.isRecurring ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                  )}
                   onClick={() => {
-                    if (!newTx.creditCardId) {
-                      setNewTx({...newTx, isPaid: !newTx.isPaid});
+                    if (!newTx.isRecurring) {
+                      setNewTx({...newTx, isInstallment: !newTx.isInstallment});
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (!newTx.creditCardId && (e.key === ' ' || e.key === 'Enter')) {
+                    if (!newTx.isRecurring && (e.key === ' ' || e.key === 'Enter')) {
                       e.preventDefault();
-                      setNewTx(prev => ({...prev, isPaid: !prev.isPaid}));
+                      setNewTx(prev => ({...prev, isInstallment: !prev.isInstallment}));
                     }
-                  }}>
-               <div className="flex flex-col">
-                 <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
-                 <span className="text-[10px] text-muted-foreground">
-                   {newTx.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
-                 </span>
-               </div>
-               <div className={cn(
-                 "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                 newTx.isPaid ? "bg-primary" : "bg-muted"
-               )}>
-                 <div className={cn(
-                   "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                   newTx.isPaid ? "translate-x-5" : "translate-x-0"
-                 )} />
-               </div>
-             </div>
-
-            {activeModal === 'new_transaction_expense' && (
-              <div 
-                tabIndex={0}
-                role="checkbox"
-                aria-checked={newTx.isInstallment}
-                className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none" 
-                onClick={() => setNewTx({...newTx, isInstallment: !newTx.isInstallment})}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault();
-                    setNewTx(prev => ({...prev, isInstallment: !prev.isInstallment}));
-                  }
-                }}
-              >
-                <div className="flex flex-col">
-                  <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
-                  <span className="text-[10px] text-muted-foreground">Configurar lançamentos parcelados?</span>
-                </div>
-                <div className={cn(
-                  "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                  newTx.isInstallment ? "bg-primary" : "bg-muted"
-                )}>
+                  }}
+                >
+                  <div className="flex flex-col pr-1">
+                    <span className="text-xs font-semibold tracking-tight text-foreground/90">Compra Parcelada</span>
+                    <span className="text-[10px] text-muted-foreground mt-0.5">Configurar parcelados?</span>
+                  </div>
                   <div className={cn(
-                    "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                    newTx.isInstallment ? "translate-x-5" : "translate-x-0"
-                  )} />
+                    "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                    newTx.isInstallment ? "bg-primary" : "bg-muted"
+                  )}>
+                    <div className={cn(
+                      "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                      newTx.isInstallment ? "translate-x-5" : "translate-x-0"
+                    )} />
+                  </div>
+                </div>
+
+                {/* Repetir Lançamento (Recorrência) */}
+                <div 
+                  tabIndex={newTx.isInstallment ? -1 : 0}
+                  role="checkbox"
+                  aria-checked={newTx.isRecurring}
+                  className={cn(
+                    "flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group transition-all focus:ring-2 focus:ring-primary focus:outline-none",
+                    newTx.isInstallment ? "opacity-50 pointer-events-none" : "cursor-pointer hover:bg-muted/30"
+                  )}
+                  onClick={() => {
+                    if (!newTx.isInstallment) {
+                      const nextVal = !newTx.isRecurring;
+                      setNewTx({
+                        ...newTx, 
+                        isRecurring: nextVal,
+                        affectLimitImmediately: nextVal ? false : true
+                      });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (!newTx.isInstallment && (e.key === ' ' || e.key === 'Enter')) {
+                      e.preventDefault();
+                      const nextVal = !newTx.isRecurring;
+                      setNewTx(prev => ({
+                        ...prev, 
+                        isRecurring: nextVal,
+                        affectLimitImmediately: nextVal ? false : true
+                      }));
+                    }
+                  }}
+                >
+                  <div className="flex flex-col pr-1">
+                    <span className="text-xs font-semibold tracking-tight text-foreground/90">Repetir Mensalmente</span>
+                    <span className="text-[10px] text-muted-foreground mt-0.5">Assinaturas recorrentes?</span>
+                  </div>
+                  <div className={cn(
+                    "w-10 h-5 rounded-full transition-all relative flex items-center px-1 flex-shrink-0",
+                    newTx.isRecurring ? "bg-primary" : "bg-muted"
+                  )}>
+                    <div className={cn(
+                      "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                      newTx.isRecurring ? "translate-x-5" : "translate-x-0"
+                    )} />
+                  </div>
                 </div>
               </div>
             )}
@@ -950,39 +1108,42 @@ export default function DashboardPage() {
           {newTx.isInstallment && activeModal === 'new_transaction_expense' && (
             <div className="space-y-3 animate-in fade-in duration-300">
               {/* Opção para basear no vencimento da próxima parcela */}
-              <div 
-                tabIndex={0}
-                role="checkbox"
-                aria-checked={newTx.installmentBasedOn === 'next_due_date'}
-                className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none"
-                onClick={() => setNewTx(prev => ({
-                  ...prev, 
-                  installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
-                }))}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault();
-                    setNewTx(prev => ({
-                      ...prev, 
-                      installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
-                    }));
-                  }
-                }}
-              >
-                <div className="flex flex-col text-left">
-                  <span className="text-xs font-semibold tracking-tight text-foreground/90">Informar vencimento da próxima parcela</span>
-                  <span className="text-[10px] text-muted-foreground">Definir data com base no vencimento e não na compra</span>
-                </div>
-                <div className={cn(
-                  "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
-                  newTx.installmentBasedOn === 'next_due_date' ? "bg-primary" : "bg-muted"
-                )}>
+              {/* Opção para basear no vencimento da próxima parcela */}
+              {!newTx.creditCardId && (
+                <div 
+                  tabIndex={0}
+                  role="checkbox"
+                  aria-checked={newTx.installmentBasedOn === 'next_due_date'}
+                  className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl border border-border/50 group cursor-pointer hover:bg-muted/30 transition-all focus:ring-2 focus:ring-primary focus:outline-none"
+                  onClick={() => setNewTx(prev => ({
+                    ...prev, 
+                    installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
+                  }))}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      setNewTx(prev => ({
+                        ...prev, 
+                        installmentBasedOn: prev.installmentBasedOn === 'next_due_date' ? 'purchase_date' : 'next_due_date'
+                      }));
+                    }
+                  }}
+                >
+                  <div className="flex flex-col text-left">
+                    <span className="text-xs font-semibold tracking-tight text-foreground/90">Informar vencimento da próxima parcela</span>
+                    <span className="text-[10px] text-muted-foreground">Definir data com base no vencimento e não na compra</span>
+                  </div>
                   <div className={cn(
-                    "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
-                    newTx.installmentBasedOn === 'next_due_date' ? "translate-x-5" : "translate-x-0"
-                  )} />
+                    "w-10 h-5 rounded-full transition-all relative flex items-center px-1",
+                    newTx.installmentBasedOn === 'next_due_date' ? "bg-primary" : "bg-muted"
+                  )}>
+                    <div className={cn(
+                      "w-3.5 h-3.5 rounded-full bg-white transition-all shadow-sm",
+                      newTx.installmentBasedOn === 'next_due_date' ? "translate-x-5" : "translate-x-0"
+                    )} />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                  <div>
@@ -1131,7 +1292,18 @@ export default function DashboardPage() {
                           {tx.description}
                           {tx.isProjected && <span className="ml-2 text-[8px] bg-primary/20 text-primary px-1 rounded italic">Projetado</span>}
                         </span>
-                        <span className="text-[9px] text-muted-foreground">
+                        {tx.creditCardId && (
+                          tx.isRecurring ? (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[8px] font-bold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded w-fit">
+                              🔄 Assinatura recorrente no cartão (Sem consumir limite)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 mt-1 text-[8px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded w-fit">
+                              💳 Fatura do Cartão
+                            </span>
+                          )
+                        )}
+                        <span className="text-[9px] text-muted-foreground mt-0.5">
                           Vence em {format(new Date(tx.dueDate || tx.competenceDate), "dd 'de' MMMM", { locale: ptBR })}
                           {isPaid && tx.paymentDate && (
                             <span className="ml-1 text-primary/60 font-bold">
@@ -1973,9 +2145,15 @@ export default function DashboardPage() {
                             {isVirtual && <span className="text-[8px] bg-primary/20 text-primary px-1 rounded border border-primary/20">Previsto</span>}
                           </span>
                           {tx.creditCardId && (
-                            <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded mt-1 w-fit flex items-center gap-1 animate-pulse">
-                              <span>💳</span> Fatura do Cartão
-                            </span>
+                            tx.isRecurring ? (
+                              <span className="text-[9px] font-bold text-blue-500 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded mt-1 w-fit flex items-center gap-1">
+                                🔄 Assinatura recorrente no cartão (Sem consumir limite)
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded mt-1 w-fit flex items-center gap-1 animate-pulse">
+                                <span>💳</span> Fatura do Cartão
+                              </span>
+                            )
                           )}
                           
                           {/* Em celular ou tablets pequenos, mostre datas de forma compacta para não quebrar o layout */}

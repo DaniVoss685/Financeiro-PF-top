@@ -510,7 +510,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     name: custom.name !== undefined ? custom.name : mc.name,
                     color: custom.color !== undefined ? custom.color : mc.color,
                     icon: custom.icon !== undefined ? custom.icon : mc.icon,
-                    monthlyGoal: custom.monthlyGoal !== undefined ? custom.monthlyGoal : mc.monthlyGoal,
+                    monthlyGoal: custom.monthlyGoal !== undefined ? (custom.monthlyGoal === null ? undefined : Number(custom.monthlyGoal)) : mc.monthlyGoal,
                     isActive: custom.isActive !== undefined ? custom.isActive : mc.isActive,
                     excludeFromAnalysis: custom.excludeFromAnalysis !== undefined ? custom.excludeFromAnalysis : false
                   };
@@ -526,7 +526,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 type: dbc.type,
                 color: custom?.color !== undefined ? custom.color : dbc.color,
                 icon: custom?.icon !== undefined ? custom.icon : dbc.icon,
-                monthlyGoal: dbc.monthly_goal ? Number(dbc.monthly_goal) : (custom?.monthlyGoal !== undefined ? custom.monthlyGoal : undefined),
+                monthlyGoal: custom?.monthlyGoal !== undefined 
+                  ? (custom.monthlyGoal === null ? undefined : Number(custom.monthlyGoal)) 
+                  : ((dbc.monthly_goal !== null && dbc.monthly_goal !== undefined) ? Number(dbc.monthly_goal) : undefined),
                 isActive: custom?.isActive !== undefined ? custom.isActive : dbc.is_active,
                 excludeFromAnalysis: custom?.excludeFromAnalysis !== undefined ? custom.excludeFromAnalysis : !!dbc.exclude_from_analysis
               });
