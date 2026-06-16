@@ -18,6 +18,7 @@ export default function CardsPage() {
   const [deletingCardName, setDeletingCardName] = useState('');
 
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | null>(null);
+  const [viewingFutureTxsCardId, setViewingFutureTxsCardId] = useState<string | null>(null);
 
   // New purchase registration state for credit card
   const [newPurchaseDesc, setNewPurchaseDesc] = useState('');
@@ -112,6 +113,23 @@ export default function CardsPage() {
 
   const currentInvoiceTotal = (cardId: string) => {
     return getInvoiceTransactions(cardId, selectedMonth, selectedYear)
+      .reduce((acc, t) => acc + t.amount, 0);
+  };
+
+  const getFutureTransactions = (cardId: string) => {
+    const cardTxs = transactions.filter(t => t.creditCardId === cardId && t.status === 'OPEN');
+    const currentMonthEnd = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
+    
+    return cardTxs.filter(t => {
+      const date = parseISO(t.dueDate || t.competenceDate);
+      return date.getTime() > currentMonthEnd.getTime();
+    }).sort((a, b) => new Date(a.dueDate || a.competenceDate).getTime() - new Date(b.dueDate || b.competenceDate).getTime());
+  };
+
+  const getNextInvoiceTotal = (cardId: string) => {
+    const nextMonth = selectedMonth === 11 ? 0 : selectedMonth + 1;
+    const nextYear = selectedMonth === 11 ? selectedYear + 1 : selectedYear;
+    return getInvoiceTransactions(cardId, nextMonth, nextYear)
       .reduce((acc, t) => acc + t.amount, 0);
   };
 
@@ -388,40 +406,50 @@ export default function CardsPage() {
                 })()}
 
                 <div className="pt-1">
-                  {(() => {
-                    const openTxs = cardTxs.filter(t => t.status === 'OPEN');
-                    const hasTransactions = cardTxs.length > 0;
-                    
-                    return (
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => setViewingInvoiceId(card.id)}
-                          className={cn(
-                            "flex items-center justify-center gap-2 py-2.5 bg-muted/40 hover:bg-muted text-foreground rounded-xl text-xs font-bold transition-all border border-border/50",
-                            hasTransactions ? "w-1/2" : "w-full"
-                          )}
-                        >
-                          <CardIcon className="w-4 h-4" /> Ver Fatura
-                        </button>
-                        
-                        {hasTransactions && (
-                          openTxs.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => handlePayInvoice(card.id, cardTxs)}
-                              className="w-1/2 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-600/15"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Pagar
-                            </button>
-                          ) : (
-                            <div className="w-1/2 flex items-center justify-center gap-1 py-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 font-bold text-xs uppercase tracking-wider rounded-xl select-none">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Paga 🎉
-                            </div>
-                          )
-                        )}
-                      </div>
-                    );
-                  })()}
+                   {(() => {
+                     const openTxs = cardTxs.filter(t => t.status === 'OPEN');
+                     const hasTransactions = cardTxs.length > 0;
+                     
+                     return (
+                       <div className="flex flex-col gap-2">
+                         <div className="flex gap-2">
+                           <button 
+                             onClick={() => setViewingInvoiceId(card.id)}
+                             className={cn(
+                               "flex items-center justify-center gap-2 py-2.5 bg-muted/40 hover:bg-muted text-foreground rounded-xl text-xs font-bold transition-all border border-border/50",
+                               hasTransactions ? "w-1/2" : "w-full"
+                             )}
+                           >
+                             <CardIcon className="w-4 h-4" /> Ver Fatura
+                           </button>
+                           
+                           {hasTransactions && (
+                             openTxs.length > 0 ? (
+                               <button
+                                 type="button"
+                                 onClick={() => handlePayInvoice(card.id, cardTxs)}
+                                 className="w-1/2 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-600/15"
+                               >
+                                 <CheckCircle2 className="w-3.5 h-3.5" /> Pagar
+                               </button>
+                             ) : (
+                               <div className="w-1/2 flex items-center justify-center gap-1 py-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 font-bold text-xs uppercase tracking-wider rounded-xl select-none">
+                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Paga 🎉
+                               </div>
+                             )
+                           )}
+                         </div>
+
+                         <button
+                           type="button"
+                           onClick={() => setViewingFutureTxsCardId(card.id)}
+                           className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-xl text-xs font-bold transition-all shadow-sm"
+                         >
+                           🗓️ Lançamentos Futuros
+                         </button>
+                       </div>
+                     );
+                   })()}
                   <div className="flex items-center justify-center gap-4 mt-4">
                     <button 
                       onClick={() => handleEditCard(card)}
@@ -686,6 +714,112 @@ export default function CardsPage() {
               );
             })()}
           </div>
+        </Modal>
+      )}
+
+      {/* Modal de Lançamentos Futuros */}
+      {viewingFutureTxsCardId && (
+        <Modal
+          isOpen={!!viewingFutureTxsCardId}
+          onClose={() => setViewingFutureTxsCardId(null)}
+          title={`Lançamentos Futuros: ${creditCards.find(c => c.id === viewingFutureTxsCardId)?.name}`}
+          className="max-w-2xl"
+        >
+          {(() => {
+            const card = creditCards.find(c => c.id === viewingFutureTxsCardId);
+            if (!card) return null;
+
+            const futureTxs = getFutureTransactions(card.id);
+            const nextInvoiceTotal = getNextInvoiceTotal(card.id);
+            const nextMonthIndex = selectedMonth === 11 ? 0 : selectedMonth + 1;
+            const nextMonthDate = new Date(selectedYear, nextMonthIndex, 1);
+            const nextMonthName = format(nextMonthDate, 'MMMM', { locale: ptBR });
+
+            return (
+              <div className="space-y-6">
+                {/* Indicadores superiores em grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Limite Disponível */}
+                  <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Limite Disponível</span>
+                    <span className="text-xl font-black text-emerald-600 mt-1">{formatCurrency(card.availableLimit)}</span>
+                  </div>
+                  {/* Próxima Fatura */}
+                  <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider capitalize">Fatura de {nextMonthName}</span>
+                    <span className="text-xl font-black text-blue-600 mt-1">{formatCurrency(nextInvoiceTotal)}</span>
+                  </div>
+                  {/* Limite Total */}
+                  <div className="p-4 rounded-xl border border-border bg-card flex flex-col justify-between">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Limite Total</span>
+                    <span className="text-xl font-black text-foreground mt-1">{formatCurrency(card.totalLimit)}</span>
+                  </div>
+                </div>
+
+                {/* Lista de Lançamentos Futuros */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider pb-2 border-b border-border/40">
+                    Detalhamento dos Lançamentos Futuros
+                  </h4>
+
+                  <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
+                    {futureTxs.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center bg-muted/5 border border-border/30 rounded-xl space-y-2">
+                        <span className="text-xl">📅</span>
+                        <p className="text-muted-foreground text-xs font-semibold">Nenhum lançamento futuro em aberto.</p>
+                        <p className="text-[10px] text-muted-foreground">Não há parcelas ou cobranças agendadas para os meses seguintes.</p>
+                      </div>
+                    ) : (
+                      futureTxs.map(t => {
+                        const cat = getCategory(t.categoryId);
+                        const dueDateObj = parseISO(t.dueDate || t.competenceDate);
+                        return (
+                          <div key={t.id} className="flex justify-between items-center p-3.5 rounded-xl border border-border/40 bg-card hover:border-primary/20 transition-all">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-muted shrink-0">
+                                {cat && <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                                  {t.description}
+                                  {t.isInstallment && (
+                                    <span className="text-[9px] text-muted-foreground font-semibold italic bg-muted/40 px-1 py-0.2 rounded">
+                                      ({t.installmentCurrent}/{t.installmentTotal})
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-[9px] text-muted-foreground mt-0.5">
+                                  Vence em: {format(dueDateObj, "dd/MM/yyyy", { locale: ptBR })}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="font-black text-foreground text-xs">
+                                {formatCurrency(t.amount)}
+                              </span>
+                              <span className="text-[8px] font-semibold text-muted-foreground uppercase bg-muted/30 px-1.5 py-0.2 rounded">
+                                {format(dueDateObj, "MMMM 'de' yyyy", { locale: ptBR })}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewingFutureTxsCardId(null)}
+                    className="px-4 py-2 bg-muted hover:bg-muted/80 text-foreground text-xs font-bold rounded-xl transition-all"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </Modal>
       )}
 

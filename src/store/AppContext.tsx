@@ -783,7 +783,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: newId,
       createdAt: t.createdAt || new Date().toISOString()
     };
-    setTransactions(prev => [...prev, newTransaction]);
+    transactionsRef.current = [...transactionsRef.current, newTransaction];
+    setTransactions(transactionsRef.current);
     
     // Update bank balance if paid/received
     if (t.status === 'PAID' || t.status === 'RECEIVED') {
@@ -801,7 +802,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Sincronizar limites dos cartões de crédito declarativamente
-    syncCreditCardLimits([...transactions, newTransaction]);
+    syncCreditCardLimits(transactionsRef.current);
 
     // Update goal if it's already paid and linked
     if (t.linkedGoalId && t.type === 'EXPENSE' && (t.status === 'PAID' || t.status === 'RECEIVED')) {
@@ -1039,13 +1040,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       affect_limit_immediately: updates.affectLimitImmediately !== undefined ? updates.affectLimitImmediately : (t.affectLimitImmediately !== false)
     }).eq('id', id).then();
 
-    const updatedList = transactions.map(tx => {
+    const updatedList = transactionsRef.current.map(tx => {
       if (tx.id === id) {
         return { ...tx, ...updates };
       }
       return tx;
     });
-
+    transactionsRef.current = updatedList;
     setTransactions(updatedList);
 
     // Sincroniza os limites dos cartões declarativamente
@@ -1084,7 +1085,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReminders(prev => prev.filter(r => r.transactionId !== id));
     await supabase.from('reminders').delete().eq('transaction_id', id);
 
-    const remainingTransactions = transactions.filter(tx => tx.id !== id);
+    const remainingTransactions = transactionsRef.current.filter(tx => tx.id !== id);
+    transactionsRef.current = remainingTransactions;
     setTransactions(remainingTransactions);
     await supabase.from('transactions').delete().eq('id', id);
 
@@ -1222,13 +1224,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       completeReminder(relatedReminder.id);
     }
 
-    const updatedTransactionsList = transactions.map(tx => {
+    const updatedTransactionsList = transactionsRef.current.map(tx => {
       if (tx.id === id) {
         return { ...tx, status: finalStatus, paymentDate };
       }
       return tx;
     });
-
+    transactionsRef.current = updatedTransactionsList;
     setTransactions(updatedTransactionsList);
 
     // Sincronizar limites dos cartões declarativamente
@@ -1354,7 +1356,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const excludeRecurringMonth = async (originalId: string, monthYear: string) => {
-    setTransactions(prev => prev.map(t => {
+    const updated = transactionsRef.current.map(t => {
       if (t.id === originalId) {
         const exclusions = t.recurringExclusions || [];
         if (!exclusions.includes(monthYear)) {
@@ -1366,7 +1368,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
       return t;
-    }));
+    });
+    transactionsRef.current = updated;
+    setTransactions(updated);
   };
 
   const payAllOverdue = async () => {
@@ -1380,7 +1384,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (overdueIds.length === 0) return;
 
-    setTransactions(prev => prev.map(t => {
+    const updated = transactionsRef.current.map(t => {
       if (overdueIds.includes(t.id)) {
         setBanks(prevBanks => prevBanks.map(bank => {
           if (bank.id === t.bankId) {
@@ -1400,7 +1404,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...t, status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID', paymentDate: today };
       }
       return t;
-    }));
+    });
+
+    transactionsRef.current = updated;
+    setTransactions(updated);
+    syncCreditCardLimits(updated);
   };
 
   const addReminder = async (r: Omit<Reminder, 'id' | 'isCompleted' | 'createdAt'>) => {
