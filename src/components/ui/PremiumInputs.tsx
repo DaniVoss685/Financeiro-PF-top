@@ -29,22 +29,36 @@ function DropdownPortal({ children, triggerRef, isOpen, onClose }: { children: R
       const scrollY = window.scrollY;
       const scrollX = window.scrollX;
       const windowHeight = window.innerHeight;
+      const windowWidth = window.innerWidth;
       
+      const dropdownWidth = Math.max(rect.width, 240);
       const spaceBelow = windowHeight - rect.bottom;
       const spaceAbove = rect.top;
       const dropdownHeight = 350; // Estimated max height for calendar/select
 
+      // Calcular left com clamp para não sair da tela
+      const MARGIN = 8; // margem das bordas
+      let calculatedLeft = rect.left + scrollX;
+      // Garante que não ultrapasse a direita da tela
+      if (calculatedLeft + dropdownWidth > windowWidth + scrollX - MARGIN) {
+        calculatedLeft = windowWidth + scrollX - dropdownWidth - MARGIN;
+      }
+      // Garante que não ultrapasse a esquerda da tela
+      if (calculatedLeft < scrollX + MARGIN) {
+        calculatedLeft = scrollX + MARGIN;
+      }
+
       if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
         setCoords({
           top: rect.top + scrollY,
-          left: rect.left + scrollX,
+          left: calculatedLeft,
           width: rect.width,
           placement: 'top'
         });
       } else {
         setCoords({
           top: rect.bottom + scrollY,
-          left: rect.left + scrollX,
+          left: calculatedLeft,
           width: rect.width,
           placement: 'bottom'
         });

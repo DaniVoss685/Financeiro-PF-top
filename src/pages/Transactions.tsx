@@ -91,6 +91,8 @@ const TransactionTable = ({
   const getCategory = (id: string) => categories.find(c => c.id === id);
   const getBank = (id: string) => banks.find(b => b.id === id);
 
+  const totalAmount = data.reduce((acc, t) => acc + t.amount, 0);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row gap-4 items-center">
@@ -115,7 +117,148 @@ const TransactionTable = ({
         </button>
       </div>
 
-      <PremiumCard className="overflow-x-auto border border-border/50 bg-card/50">
+      {/* ── MOBILE: Cards compactos ── */}
+      <div className="md:hidden space-y-2">
+        {data.length === 0 ? (
+          <div className="p-10 text-center text-muted-foreground italic text-sm bg-card/50 border border-border/50 rounded-2xl">
+            Nenhuma {type === 'INCOME' ? 'receita' : 'despesa'} encontrada.
+          </div>
+        ) : data.map(t => {
+          const cat = getCategory(t.categoryId);
+          let bank = getBank(t.bankId);
+          if (!bank && t.creditCardId && creditCards) {
+            const card = creditCards.find(cc => cc.id === t.creditCardId);
+            if (card) bank = getBank(card.bankId);
+          }
+          const isPaid = t.status === 'PAID' || t.status === 'RECEIVED';
+          const hasReminder = reminders && reminders.some(r => r.transactionId === t.id && !r.isCompleted);
+
+          const statusLabel = (() => {
+            if (isPaid) return t.type === 'INCOME' ? 'Recebido' : 'Pago';
+            const nowAtStartOfToday = new Date(); nowAtStartOfToday.setHours(0,0,0,0);
+            const due = new Date(t.dueDate); due.setHours(0,0,0,0);
+            return (due < nowAtStartOfToday && !t.paymentDate) ? 'Vencido' : 'Aberto';
+          })();
+
+          const statusClass = (() => {
+            if (isPaid) return 'bg-success/10 text-success border-success/30';
+            const nowAtStartOfToday = new Date(); nowAtStartOfToday.setHours(0,0,0,0);
+            const due = new Date(t.dueDate); due.setHours(0,0,0,0);
+            return (due < nowAtStartOfToday && !t.paymentDate) 
+              ? 'bg-destructive/10 text-destructive border-destructive/30' 
+              : 'bg-amber-400/10 text-amber-400 border-amber-400/30';
+          })();
+
+          return (
+            <div key={t.id} className="bg-card border border-border/50 rounded-2xl p-4 space-y-3">
+              {/* Linha 1: Descrição + Valor */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm text-foreground/90 leading-tight truncate">{t.description}</p>
+                  {t.creditCardId && (
+                    t.isRecurring ? (
+                      <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-lg">
+                        🔄 Assinatura recorrente
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-lg">
+                        💳 Fatura do cartão
+                      </span>
+                    )
+                  )}
+                  {t.isInstallment && t.installmentTotal && t.installmentCurrent && (
+                    <span className="block text-[10px] text-muted-foreground/80 font-semibold mt-0.5">
+                      {(() => {
+                        const remaining = t.installmentTotal - t.installmentCurrent;
+                        if (remaining <= 0) return '✨ Última parcela!';
+                        const currentDueDate = new Date(t.dueDate);
+                        const lastInstallmentDate = addMonths(currentDueDate, remaining);
+                        const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                        return `📅 ${t.installmentCurrent}/${t.installmentTotal} · Última em ${months[lastInstallmentDate.getMonth()]}/${lastInstallmentDate.getFullYear()}`;
+                      })()}
+                    </span>
+                  )}
+                </div>
+                <span className={cn("font-black text-base tracking-tight shrink-0", t.type === 'INCOME' ? "text-primary" : "text-foreground/90")}>
+                  {t.type === 'INCOME' ? '+' : ''}{formatCurrency(t.amount)}
+                </span>
+              </div>
+
+              {/* Linha 2: Categoria + Banco + Status */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {cat && (
+                  <div className="flex items-center gap-1.5">
+                    <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />
+                    <span className="text-[11px] font-semibold text-muted-foreground">{cat.name}</span>
+                  </div>
+                )}
+                {bank && (
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: bank.color }} />
+                    <span className="text-[11px] text-muted-foreground font-semibold">{bank.name}</span>
+                  </div>
+                )}
+                <span className={cn("text-[9px] font-semibold px-2 py-0.5 rounded-lg border ml-auto", statusClass)}>
+                  {statusLabel}
+                </span>
+              </div>
+
+              {/* Linha 3: Datas + Ações */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                  {t.dueDate && (
+                    <span>Venc: <span className={cn("font-semibold", statusLabel === 'Vencido' ? 'text-destructive' : 'text-foreground/70')}>{format(parseISO(t.dueDate), 'dd/MM/yy')}</span></span>
+                  )}
+                  {isPaid && t.paymentDate && (
+                    <span>Pago: <span className="font-semibold text-success">{format(parseISO(t.paymentDate), 'dd/MM/yy')}</span></span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {!isPaid && (
+                    <>
+                      <button 
+                        onClick={() => onCreateReminder(t)}
+                        title={hasReminder ? "Editar Lembrete" : "Criar Lembrete"}
+                        className={`p-1.5 rounded-lg transition-all ${hasReminder ? 'bg-amber-400/20 text-amber-500' : 'hover:bg-amber-400/20 hover:text-amber-500 text-muted-foreground'}`}
+                      >
+                        <Bell className={`w-4 h-4 ${hasReminder ? 'fill-current' : ''}`} />
+                      </button>
+                      <button 
+                        onClick={() => onQuickPay(t)}
+                        title="Marcar como Pago hoje"
+                        className="p-1.5 bg-success/10 text-success hover:bg-success/20 rounded-lg transition-all"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => onEdit(t)} className="p-1.5 hover:bg-primary/20 hover:text-primary rounded-lg transition-all text-muted-foreground">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => onDeleteClick(t)} className="p-1.5 hover:bg-destructive/20 hover:text-destructive rounded-lg transition-all text-muted-foreground">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Total mobile */}
+        {data.length > 0 && (
+          <div className="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-2xl">
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Total de {type === 'INCOME' ? 'Receitas' : 'Despesas'}
+            </span>
+            <span className={cn("font-black text-sm tracking-tight", type === 'INCOME' ? "text-primary" : "text-red-500")}>
+              {formatCurrency(totalAmount)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── DESKTOP: Tabela original ── */}
+      <PremiumCard className="hidden md:block overflow-x-auto border border-border/50 bg-card/50">
         <table className="w-full text-left border-collapse min-w-[800px]">
           <thead>
             <tr className="border-b border-border/60 bg-muted/20">
@@ -1166,7 +1309,7 @@ export default function TransactionsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <PremiumCurrencyInput 
                 label="Valor"
                 value={formData.amount}
@@ -1182,7 +1325,7 @@ export default function TransactionsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <PremiumSelect 
                 label="Categoria"
                 required
