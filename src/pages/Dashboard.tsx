@@ -89,6 +89,7 @@ const expenses = [
 
 export default function DashboardPage() {
   const [deletingTransaction, setDeletingTransaction] = useState<any>(null);
+  const [confirmingPayTransaction, setConfirmingPayTransaction] = useState<any>(null);
   const { 
     transactions, addTransaction, updateTransaction, deleteTransaction, 
     excludeRecurringMonth, categories, addCategory, banks, goals, 
@@ -107,6 +108,11 @@ export default function DashboardPage() {
   });
 
   const handleQuickPay = (t: any) => {
+    setConfirmingPayTransaction(t);
+  };
+
+  const executeQuickPay = (t: any) => {
+    if (!t) return;
     const isVirtual = t.id.toString().startsWith('recurring-');
     if (isVirtual) {
       const parentId = t.id.toString().split('-')[1];
@@ -126,6 +132,7 @@ export default function DashboardPage() {
         status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID'
       });
     }
+    setConfirmingPayTransaction(null);
   };
 
   const handleEditClick = (t: any) => {
@@ -840,7 +847,7 @@ export default function DashboardPage() {
       <Modal isOpen={activeModal === 'new_transaction_income' || activeModal === 'new_transaction_expense'} 
              onClose={closeModal} 
              title={editingTransaction ? (activeModal === 'new_transaction_income' ? "Editar Receita" : "Editar Despesa") : (activeModal === 'new_transaction_income' ? "Nova Receita" : "Nova Despesa")}>
-        <div className="space-y-4">
+        <div className="space-y-4 pb-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Descrição</label>
             <input 
@@ -1697,6 +1704,40 @@ export default function DashboardPage() {
         </div>
       </Modal>
 
+      <Modal 
+        isOpen={confirmingPayTransaction !== null} 
+        onClose={() => setConfirmingPayTransaction(null)} 
+        title={confirmingPayTransaction?.type === 'INCOME' ? "Confirmar Recebimento" : "Confirmar Pagamento"}
+      >
+        <div className="space-y-4 pb-2">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Deseja confirmar que a transação <strong className="text-foreground">"{confirmingPayTransaction?.description}"</strong> no valor de <strong className="text-foreground">{formatCurrency(confirmingPayTransaction?.amount || 0)}</strong> foi {confirmingPayTransaction?.type === 'INCOME' ? 'recebida' : 'paga'} hoje?
+          </p>
+
+          <div className="pt-4 flex gap-3">
+            <button 
+              type="button" 
+              onClick={() => setConfirmingPayTransaction(null)}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all text-muted-foreground cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button 
+              type="button" 
+              onClick={() => executeQuickPay(confirmingPayTransaction)}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-xs font-bold transition-all text-white cursor-pointer shadow-lg",
+                confirmingPayTransaction?.type === 'INCOME' 
+                  ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/10" 
+                  : "bg-primary hover:bg-primary/90 shadow-primary/20"
+              )}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal isOpen={activeModal === 'confirm_delete'} onClose={closeModal} title="Confirmar Remoção">
         <div className="space-y-4">
           {(() => {
@@ -2080,8 +2121,8 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Table Header */}
-              <div className="grid grid-cols-12 gap-4 text-xs text-muted-foreground pb-4 border-b border-border font-medium px-2 select-none">
+              {/* Table Header - Desktop */}
+              <div className="hidden md:grid grid-cols-12 gap-4 text-xs text-muted-foreground pb-4 border-b border-border font-medium px-2 select-none">
                 <div 
                   onClick={() => handleSort('description')} 
                   className="col-span-5 sm:col-span-3 flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"
@@ -2115,8 +2156,8 @@ export default function DashboardPage() {
                 <div className="col-span-3 sm:col-span-3 md:col-span-1 text-right">Ações</div>
               </div>
 
-              {/* Table Body */}
-              <div className="flex flex-col mt-2">
+              {/* Table Body - Desktop */}
+              <div className="hidden md:flex flex-col mt-2">
                 {filteredTransactions.map((tx, idx) => {
                   const category = categories.find(c => c.id === tx.categoryId);
                   const isPaid = tx.status === 'PAID' || tx.status === 'RECEIVED';
@@ -2271,6 +2312,120 @@ export default function DashboardPage() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Table Body - Mobile Cards Compactos */}
+              <div className="md:hidden flex flex-col gap-2 mt-2">
+                {filteredTransactions.length === 0 ? (
+                  <div className="p-10 text-center text-muted-foreground italic text-sm bg-card/50 border border-border/50 rounded-2xl">
+                    Nenhuma transação encontrada.
+                  </div>
+                ) : (
+                  filteredTransactions.map((tx) => {
+                    const category = categories.find(c => c.id === tx.categoryId);
+                    const bank = banks.find(b => b.id === tx.bankId);
+                    const isPaid = tx.status === 'PAID' || tx.status === 'RECEIVED';
+                    const isVirtual = tx.id.toString().startsWith('recurring-');
+
+                    const statusLabel = (() => {
+                      if (isPaid) return tx.type === 'INCOME' ? 'Recebido' : 'Pago';
+                      const nowAtStartOfToday = new Date(); nowAtStartOfToday.setHours(0,0,0,0);
+                      const due = new Date(tx.dueDate || tx.competenceDate); due.setHours(0,0,0,0);
+                      return (due < nowAtStartOfToday && !tx.paymentDate) ? 'Vencido' : 'Aberto';
+                    })();
+
+                    const statusClass = (() => {
+                      if (isPaid) return 'bg-success/10 text-success border-success/30';
+                      const nowAtStartOfToday = new Date(); nowAtStartOfToday.setHours(0,0,0,0);
+                      const due = new Date(tx.dueDate || tx.competenceDate); due.setHours(0,0,0,0);
+                      return (due < nowAtStartOfToday && !tx.paymentDate) 
+                        ? 'bg-destructive/10 text-destructive border-destructive/30' 
+                        : 'bg-amber-400/10 text-amber-400 border-amber-400/30';
+                    })();
+
+                    return (
+                      <div key={tx.id} className="bg-background/40 border border-border/50 rounded-2xl p-4 space-y-3 hover:bg-muted/30 transition-colors">
+                        {/* Linha 1: Descrição + Valor */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm text-foreground/90 leading-tight truncate flex items-center gap-1.5">
+                              {tx.description}
+                              {isVirtual && <span className="text-[8px] bg-primary/20 text-primary px-1 rounded border border-primary/20 shrink-0">Previsto</span>}
+                            </p>
+                            {tx.creditCardId && (
+                              tx.isRecurring ? (
+                                <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded-lg">
+                                  🔄 Assinatura
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-lg animate-pulse">
+                                  💳 Fatura do cartão
+                                </span>
+                              )
+                            )}
+                          </div>
+                          <span className={cn("font-black text-sm tracking-tight shrink-0", tx.type === 'INCOME' ? "text-primary" : "text-foreground/90")}>
+                            {tx.type === 'INCOME' ? '+' : ''}{formatCurrency(tx.amount)}
+                          </span>
+                        </div>
+
+                        {/* Linha 2: Categoria + Banco/Cartão + Status */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {category && (
+                            <div className="flex items-center gap-1.5">
+                              <CategoryIcon icon={category.icon} color={category.color} size="sm" />
+                              <span className="text-[11px] font-semibold text-muted-foreground">{category.name}</span>
+                            </div>
+                          )}
+                          {bank && (
+                            <div className="flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: bank.color }} />
+                              <span className="text-[11px] text-muted-foreground font-semibold">{bank.name}</span>
+                            </div>
+                          )}
+                          <span className={cn("text-[9px] font-semibold px-2 py-0.5 rounded-lg border ml-auto", statusClass)}>
+                            {statusLabel}
+                          </span>
+                        </div>
+
+                        {/* Linha 3: Datas + Ações */}
+                        <div className="flex items-center justify-between pt-1 border-t border-border/20">
+                          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                            {(tx.dueDate || tx.competenceDate) && (
+                              <span>Venc: <span className={cn("font-semibold", statusLabel === 'Vencido' ? 'text-destructive' : 'text-foreground/70')}>{format(new Date(tx.dueDate || tx.competenceDate), 'dd/MM/yy')}</span></span>
+                            )}
+                            {isPaid && tx.paymentDate && (
+                              <span>Pago: <span className="font-semibold text-success">{format(new Date(tx.paymentDate), 'dd/MM/yy')}</span></span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {!isPaid && !isVirtual && (
+                              <button 
+                                onClick={() => handleQuickPay(tx)}
+                                title="Marcar como Pago hoje"
+                                className="p-1.5 bg-success/10 text-success hover:bg-success/20 rounded-lg transition-all cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button onClick={() => handleEditClick(tx)} className="p-1.5 hover:bg-primary/20 hover:text-primary rounded-lg transition-all text-muted-foreground cursor-pointer">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setDeletingTransaction(tx);
+                                setActiveModal('confirm_delete');
+                              }} 
+                              className="p-1.5 hover:bg-destructive/20 hover:text-destructive rounded-lg transition-all text-muted-foreground cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
             

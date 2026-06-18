@@ -17,7 +17,9 @@ import {
 } from 'lucide-react';
 
 export default function CategoriesPage() {
-  const { categories, transactions, addCategory, updateCategory } = useAppContext();
+  const { categories, transactions, addCategory, updateCategory, theme } = useAppContext();
+  const defaultColor = theme === 'dark' ? '#E7B63F' : '#0F8265';
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export default function CategoriesPage() {
   const [newCategory, setNewCategory] = useState({
     name: '',
     type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
-    color: '#BCF24B',
+    color: defaultColor,
     icon: 'utensils',
     monthlyGoal: '',
     excludeFromAnalysis: false
@@ -67,7 +69,7 @@ export default function CategoriesPage() {
     setNewCategory({
       name: '',
       type: 'EXPENSE',
-      color: '#BCF24B',
+      color: defaultColor,
       icon: 'utensils',
       monthlyGoal: '',
       excludeFromAnalysis: false
@@ -75,7 +77,7 @@ export default function CategoriesPage() {
   };
 
   const colors = [
-    '#BCF24B', '#FFD700', '#FF6B6B', '#4DABF7', '#51CF66', '#FAB005', '#7950F2', '#BE4BDB',
+    '#E7B63F', '#0F8265', '#FFD700', '#FF6B6B', '#4DABF7', '#51CF66', '#FAB005', '#7950F2', '#BE4BDB',
     '#004A80', '#0284C7', '#0EA5E9', '#06B6D4', '#22C55E', '#10B981', '#F59E0B', '#F97316',
     '#EF4444', '#EC4899', '#D32F2F', '#7C3AED', '#EAB308', '#84CC16', '#EC7000', '#8A05BE'
   ];
@@ -90,7 +92,7 @@ export default function CategoriesPage() {
         <button 
           onClick={() => {
             setEditingCategoryId(null);
-            setNewCategory({ name: '', type: 'EXPENSE', color: '#BCF24B', icon: 'utensils', monthlyGoal: '', excludeFromAnalysis: false });
+            setNewCategory({ name: '', type: 'EXPENSE', color: defaultColor, icon: 'utensils', monthlyGoal: '', excludeFromAnalysis: false });
             setIsModalOpen(true);
           }}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-primary/20 transition-all flex items-center gap-2 italic"
@@ -390,7 +392,7 @@ export default function CategoriesPage() {
                     { name: 'Saúde', icon: 'heart', color: '#FF8787', label: '🏥 Saúde' },
                     { name: 'Viagem', icon: 'plane', color: '#15AABF', label: '✈️ Viagem' },
                     { name: 'Contas/Luz', icon: 'zap', color: '#BE4BDB', label: '🔌 Contas' },
-                    { name: 'Academia', icon: 'fitness', color: '#BCF24B', label: '💪 Academia' },
+                    { name: 'Academia', icon: 'fitness', color: '#E7B63F', label: '💪 Academia' },
                     { name: 'Pets', icon: 'pet', color: '#7950F2', label: '🐶 Pets' },
                     { name: 'Assinaturas', icon: 'streaming', color: '#FF922B', label: '📺 Assinaturas' },
                     { name: 'Educação', icon: 'education', color: '#0EA5E9', label: '🎓 Educação' },
@@ -422,7 +424,7 @@ export default function CategoriesPage() {
                     { name: 'Presentes', icon: 'gift', color: '#FCC419', label: '🎁 Presentes' },
                     { name: 'Reembolso', icon: 'plus-circle', color: '#7950F2', label: '➕ Reembolso' },
                     { name: 'Vendas', icon: 'hand-coins', color: '#FAB005', label: '🛍️ Vendas' },
-                    { name: 'Outros', icon: 'plus-circle', color: '#BCF24B', label: '💵 Outros' },
+                    { name: 'Outros', icon: 'plus-circle', color: '#E7B63F', label: '💵 Outros' },
                   ].map(sug => (
                     <button
                       key={sug.name}

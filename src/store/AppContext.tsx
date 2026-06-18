@@ -1148,7 +1148,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const currentCat = categories.find(c => c.id === id);
     const name = updates.name !== undefined ? updates.name : (currentCat?.name || '');
     const type = updates.type !== undefined ? updates.type : (currentCat?.type || 'EXPENSE');
-    const color = updates.color !== undefined ? updates.color : (currentCat?.color || '#BCF24B');
+    const color = updates.color !== undefined ? updates.color : (currentCat?.color || '#0F8265');
     const icon = updates.icon !== undefined ? updates.icon : (currentCat?.icon || 'utensils');
     const monthlyGoal = 'monthlyGoal' in updates ? updates.monthlyGoal : currentCat?.monthlyGoal;
     const isActive = updates.isActive !== undefined ? updates.isActive : (currentCat?.isActive ?? true);

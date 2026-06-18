@@ -523,6 +523,7 @@ export default function TransactionsPage() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [deletingTransaction, setDeletingTransaction] = useState<Transaction | null>(null);
+  const [confirmingPayTransaction, setConfirmingPayTransaction] = useState<Transaction | null>(null);
   const [createdTransactionInfo, setCreatedTransactionInfo] = useState<any>(null);
   const [reminderTransaction, setReminderTransaction] = useState<Transaction | null>(null);
   const [reminderData, setReminderData] = useState({
@@ -661,6 +662,11 @@ export default function TransactionsPage() {
 
   // Quick Pay Handler
   const handleQuickPay = (t: Transaction) => {
+    setConfirmingPayTransaction(t);
+  };
+
+  const executeQuickPay = (t: Transaction) => {
+    if (!t) return;
     const isVirtual = t.id.toString().startsWith('recurring-');
     
     if (isVirtual) {
@@ -692,6 +698,7 @@ export default function TransactionsPage() {
         status: t.type === 'INCOME' ? 'RECEIVED' : 'PAID'
       });
     }
+    setConfirmingPayTransaction(null);
   };
 
   // Filtering & Sorting Logic helper
@@ -1139,24 +1146,26 @@ export default function TransactionsPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-gradient-gold">Transações</h1>
           <p className="text-sm text-muted-foreground mt-1">Gerencie suas movimentações financeiras por período</p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-           <button className="flex-1 md:flex-none bg-card hover:bg-muted border border-border px-5 py-3 rounded-2xl font-medium transition-all flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Share2 className="w-4 h-4" /> Exportar
-          </button>
-          
-          <button 
-            onClick={() => setActiveModal('import_statement')}
-            className="flex-1 md:flex-none bg-card hover:bg-muted border border-border px-5 py-3 rounded-2xl font-bold text-foreground hover:text-primary transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-primary shrink-0" /> Importar Extrato
-          </button>
-
+        <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
           <button 
             onClick={() => handleOpenNewTransaction()}
-            className="flex-1 md:flex-none bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 rounded-2xl font-bold shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+            className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3.5 rounded-2xl font-bold shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer order-first sm:order-last"
           >
-            <Plus className="w-5 h-5" /> Nova Transação
+            <Plus className="w-5 h-5 shrink-0" /> Nova Transação
           </button>
+
+          <div className="flex gap-2 w-full sm:w-auto">
+            <button className="flex-1 sm:flex-none bg-card hover:bg-muted border border-border px-5 py-3 rounded-2xl font-medium transition-all flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Share2 className="w-4 h-4 shrink-0" /> Exportar
+            </button>
+            
+            <button 
+              onClick={() => setActiveModal('import_statement')}
+              className="flex-1 sm:flex-none bg-card hover:bg-muted border border-border px-5 py-3 rounded-2xl font-bold text-foreground hover:text-primary transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-primary shrink-0" /> Importar Extrato
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1272,7 +1281,7 @@ export default function TransactionsPage() {
         onClose={() => setActiveModal(null)} 
         title={editingTransaction ? "Editar Transação" : "Nova Transação"}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 pb-4">
           <div className="flex bg-muted/40 p-1 rounded-xl">
              <button 
               type="button"
@@ -1670,6 +1679,40 @@ export default function TransactionsPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal 
+        isOpen={confirmingPayTransaction !== null} 
+        onClose={() => setConfirmingPayTransaction(null)} 
+        title={confirmingPayTransaction?.type === 'INCOME' ? "Confirmar Recebimento" : "Confirmar Pagamento"}
+      >
+        <div className="space-y-4 pb-2">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Deseja confirmar que a transação <strong className="text-foreground">"{confirmingPayTransaction?.description}"</strong> no valor de <strong className="text-foreground">{formatCurrency(confirmingPayTransaction?.amount || 0)}</strong> foi {confirmingPayTransaction?.type === 'INCOME' ? 'recebida' : 'paga'} hoje?
+          </p>
+
+          <div className="pt-4 flex gap-3">
+            <button 
+              type="button" 
+              onClick={() => setConfirmingPayTransaction(null)}
+              className="flex-1 py-3 border border-border rounded-xl text-xs font-bold hover:bg-muted transition-all text-muted-foreground cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button 
+              type="button" 
+              onClick={() => executeQuickPay(confirmingPayTransaction)}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-xs font-bold transition-all text-white cursor-pointer shadow-lg",
+                confirmingPayTransaction?.type === 'INCOME' 
+                  ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/10" 
+                  : "bg-primary hover:bg-primary/90 shadow-primary/20"
+              )}
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal 

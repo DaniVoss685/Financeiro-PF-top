@@ -20,7 +20,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 
 // --- Utility for Portals ---
-function DropdownPortal({ children, triggerRef, isOpen, onClose }: { children: React.ReactNode, triggerRef: React.RefObject<HTMLElement>, isOpen: boolean, onClose: () => void }) {
+function DropdownPortal({ children, triggerRef, isOpen, onClose, minWidth = 240 }: { children: React.ReactNode, triggerRef: React.RefObject<HTMLElement>, isOpen: boolean, onClose: () => void, minWidth?: number }) {
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, placement: 'bottom' as 'top' | 'bottom' });
 
   const updateCoords = useCallback(() => {
@@ -31,7 +31,7 @@ function DropdownPortal({ children, triggerRef, isOpen, onClose }: { children: R
       const windowHeight = window.innerHeight;
       const windowWidth = window.innerWidth;
       
-      const dropdownWidth = Math.max(rect.width, 240);
+      const dropdownWidth = Math.max(rect.width, minWidth);
       const spaceBelow = windowHeight - rect.bottom;
       const spaceAbove = rect.top;
       const dropdownHeight = 350; // Estimated max height for calendar/select
@@ -229,7 +229,7 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
           {selectedOption?.color && (
             <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-[0_0_8px_rgba(0,0,0,0.5)] border border-foreground/10" style={{ backgroundColor: selectedOption.color }} />
           )}
-          <span className={cn("whitespace-normal break-all leading-tight py-0.5 font-medium flex-1 text-left text-xs", selectedOption ? "text-foreground/90" : "text-muted-foreground")}>
+          <span className={cn("truncate leading-tight py-0.5 font-medium flex-1 text-left text-xs", selectedOption ? "text-foreground/90" : "text-muted-foreground")}>
             {selectedOption ? selectedOption.label : placeholder}
           </span>
         </div>
@@ -303,7 +303,7 @@ export function PremiumSelect({ options, value, onChange, placeholder = 'Selecio
                             style={{ backgroundColor: option.color }} 
                           />
                         )}
-                        <span className="whitespace-normal break-all text-left flex-1 text-xs leading-tight">{option.label}</span>
+                        <span className="truncate text-left flex-1 text-xs leading-tight">{option.label}</span>
                       </div>
                       {isItemActive && <Check className="w-3.5 h-3.5 shrink-0" />}
                     </button>
@@ -382,7 +382,7 @@ export function PremiumDatePicker({ value, onChange, label, className, required 
           </div>
         </button>
 
-        <DropdownPortal triggerRef={triggerRef} isOpen={isOpen} onClose={() => setIsOpen(false)}>
+        <DropdownPortal triggerRef={triggerRef} isOpen={isOpen} onClose={() => setIsOpen(false)} minWidth={310}>
           <AnimatePresence>
             {isOpen && (
               <motion.div

@@ -39,11 +39,11 @@
     --card: #111111;
     --card-foreground: #F4F4F5;
     --border: #1a1a1a;
-    --primary: #BCF24B;
-    --primary-foreground: #000000;
+    --primary: #E7B63F;
+    --primary-foreground: #080808;
     --muted: #1a1a1a;
     --muted-foreground: #71717A;
-    --success: #BCF24B;
+    --success: #22C55E;
     --destructive: #EF4444;
   }
 }

@@ -7,7 +7,9 @@ import { Modal } from '../components/ui/Modal';
 import { PremiumSelect, PremiumCurrencyInput } from '../components/ui/PremiumInputs';
 
 export default function BanksPage() {
-  const { banks, transactions, addBank, updateBank, deleteBank, defaultBankId, setDefaultBank } = useAppContext();
+  const { banks, transactions, addBank, updateBank, deleteBank, defaultBankId, setDefaultBank, theme } = useAppContext();
+  const defaultColor = theme === 'dark' ? '#E7B63F' : '#0F8265';
+  
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [editingBank, setEditingBank] = useState<any>(null);
   const [deletingBank, setDeletingBank] = useState<any>(null);
@@ -16,7 +18,7 @@ export default function BanksPage() {
     name: '',
     type: 'CHECKING' as any,
     initialBalance: 0,
-    color: '#BCF24B',
+    color: defaultColor,
     excludeFromAnalysis: false
   });
 
@@ -28,7 +30,7 @@ export default function BanksPage() {
     totalLimit: 0,
     closingDay: 1,
     dueDay: 10,
-    color: '#BCF24B',
+    color: defaultColor,
     notes: ''
   });
 
@@ -73,7 +75,7 @@ export default function BanksPage() {
       name: '',
       type: 'CHECKING',
       initialBalance: 0,
-      color: '#BCF24B',
+      color: defaultColor,
       excludeFromAnalysis: false
     });
     setCardData({
@@ -83,7 +85,7 @@ export default function BanksPage() {
       totalLimit: 0,
       closingDay: 1,
       dueDay: 10,
-      color: '#BCF24B',
+      color: defaultColor,
       notes: ''
     });
     setShowSuccessModal(true);
@@ -259,7 +261,7 @@ export default function BanksPage() {
             name: '',
             type: 'CHECKING',
             initialBalance: 0,
-            color: '#BCF24B',
+            color: defaultColor,
             excludeFromAnalysis: false
           });
           setCardData({
@@ -269,7 +271,7 @@ export default function BanksPage() {
             totalLimit: 0,
             closingDay: 1,
             dueDay: 10,
-            color: '#BCF24B',
+            color: defaultColor,
             notes: ''
           });
         }}
@@ -316,7 +318,7 @@ export default function BanksPage() {
               <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Cor</label>
               <div className="flex flex-wrap gap-2">
                 {[
-                  '#BCF24B', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
+                  '#E7B63F', '#0F8265', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
                   '#0284C7', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#7C3AED', '#EAB308'
                 ].map(color => (
                   <button
@@ -432,7 +434,7 @@ export default function BanksPage() {
                       <label className="text-[10px] font-bold uppercase text-muted-foreground mb-1 block pl-1">Cor do Cartão</label>
                       <div className="flex flex-wrap gap-1.5 pl-1">
                         {[
-                          '#BCF24B', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
+                          '#E7B63F', '#0F8265', '#8A05BE', '#EC7000', '#004A80', '#D32F2F', '#1B1B1B', '#388E3C', '#FBC02D',
                           '#0284C7', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#7C3AED', '#EAB308'
                         ].map(color => (
                           <button
@@ -465,7 +467,7 @@ export default function BanksPage() {
                    name: '',
                    type: 'CHECKING',
                    initialBalance: 0,
-                   color: '#BCF24B',
+                   color: defaultColor,
                    excludeFromAnalysis: false
                  });
                  setCardData({
@@ -475,7 +477,7 @@ export default function BanksPage() {
                    totalLimit: 0,
                    closingDay: 1,
                    dueDay: 10,
-                   color: '#BCF24B',
+                   color: defaultColor,
                    notes: ''
                  });
                }} 

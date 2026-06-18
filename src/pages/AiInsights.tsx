@@ -15,7 +15,7 @@ export default function AiInsightsPage() {
   ]);
   const [input, setInput] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'CHAT' | 'CATEGORIES'>('CHAT');
+  const [activeTab, setActiveTab] = useState<'CHAT' | 'CATEGORIES'>('CATEGORIES');
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [viewingCategory, setViewingCategory] = useState<Category | null>(null);
@@ -382,7 +382,7 @@ export default function AiInsightsPage() {
   };
 
   return (
-    <div className="p-6 md:p-10 space-y-6 max-w-7xl mx-auto h-screen flex flex-col pb-24 md:pb-10">
+    <div className={cn("p-6 md:p-10 space-y-6 max-w-7xl mx-auto flex flex-col pb-24 md:pb-10", activeTab === 'CHAT' ? "h-screen" : "min-h-screen")}>
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-primary/10 rounded-lg">
@@ -423,7 +423,7 @@ export default function AiInsightsPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0">
+      <div className={cn("grid grid-cols-1 lg:grid-cols-12 gap-8", activeTab === 'CHAT' ? "flex-1 min-h-0" : "w-full")}>
         
         {activeTab === 'CHAT' ? (
           /* Interactive Chat (12 cols) */
@@ -490,7 +490,7 @@ export default function AiInsightsPage() {
           </PremiumCard>
         ) : (
           /* Category Analysis Tab */
-          <PremiumCard className="lg:col-span-12 flex flex-col h-full border border-border/80 bg-card rounded-[2rem] overflow-hidden shadow-xl">
+          <PremiumCard className="lg:col-span-12 flex flex-col border border-border/80 bg-card rounded-[2rem] shadow-xl">
             <div className="p-6 border-b border-border/50 bg-card/30 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
               <div>
                 <h3 className="font-bold text-lg tracking-tight">Análise por Categoria</h3>
@@ -518,7 +518,7 @@ export default function AiInsightsPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
+            <div className="p-6 space-y-6">
               {/* Cards de Resumo */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Receitas */}
@@ -770,7 +770,7 @@ export default function AiInsightsPage() {
                 <div className="p-5 rounded-2xl border border-border bg-gradient-to-br from-card to-muted/10 relative overflow-hidden group shadow-sm">
                   <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-3xl opacity-10" style={{ backgroundColor: viewingCategory.color }} />
                   
-                  <div className="grid grid-cols-2 gap-4 pb-4 border-b border-border/40">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b border-border/40">
                     <div>
                       <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Deste Mês</p>
                       <h4 className={cn("text-2xl font-black mt-1 font-display", viewingCategoryType === 'EXPENSE' ? 'text-rose-500' : 'text-emerald-500')}>

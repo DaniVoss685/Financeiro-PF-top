@@ -15,6 +15,7 @@ import NotificationsSettings from './pages/NotificationsSettings';
 import ProfileSettings from './pages/ProfileSettings';
 import SecuritySettings from './pages/SecuritySettings';
 import LoginPage from './pages/Login';
+import { MobilePreviewWrapper } from './components/layout/MobilePreviewWrapper';
 
 function AppContent() {
   const { currentUser } = useAppContext();
@@ -55,7 +56,9 @@ function AppContent() {
 export default function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <MobilePreviewWrapper>
+        <AppContent />
+      </MobilePreviewWrapper>
     </AppProvider>
   );
 }
