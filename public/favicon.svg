@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Gradiente de fundo escuro premium -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0E0C" />
+      <stop offset="100%" stop-color="#18221D" />
+    </linearGradient>
+    
+    <!-- Gradiente principal do ícone (Emerald para Neon Lime) -->
+    <linearGradient id="brandGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0F8265" />
+      <stop offset="50%" stop-color="#54B859" />
+      <stop offset="100%" stop-color="#BCF24B" />
+    </linearGradient>
+    
+    <!-- Sombreamento suave para efeito de profundidade -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Fundo Squircle (Canto arredondado premium) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  
+  <!-- Círculo sutil de borda brilhante para efeito vítreo -->
+  <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="url(#brandGrad)" stroke-width="2" stroke-opacity="0.15" />
+
+  <!-- Grupo com efeito de brilho suave -->
+  <g filter="url(#glow)">
+    <!-- Barra vertical de fundo do cifrão (estilizada e inclinada) -->
+    <path d="M 256 70 L 256 442" stroke="url(#brandGrad)" stroke-width="36" stroke-linecap="round" opacity="0.85" />
+    
+    <!-- Símbolo do "S" estilizado e dinâmico, representando crescimento financeiro -->
+    <path d="M 370 175 C 370 115, 315 115, 256 120 C 190 125, 140 145, 140 205 C 140 280, 372 240, 372 315 C 372 375, 310 395, 256 395 C 190 395, 142 370, 142 310" 
+          fill="none" 
+          stroke="url(#brandGrad)" 
+          stroke-width="48" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" />
+  </g>
+  
+  <!-- Detalhe decorativo: seta de crescimento financeiro no topo direito -->
+  <path d="M 340 130 L 385 130 L 385 175" fill="none" stroke="#BCF24B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
