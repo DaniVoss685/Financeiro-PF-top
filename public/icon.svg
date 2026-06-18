@@ -1,45 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+  <title id="title">Ícone do aplicativo Contaju</title>
+  <desc id="desc">Leão dourado em forma de peça de xadrez sobre fundo preto com moldura dourada.</desc>
   <defs>
-    <!-- Gradiente de fundo escuro premium -->
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0A0E0C" />
-      <stop offset="100%" stop-color="#18221D" />
+    <radialGradient id="bg" cx="42%" cy="28%" r="78%">
+      <stop offset="0" stop-color="#252525"/>
+      <stop offset="0.55" stop-color="#111111"/>
+      <stop offset="1" stop-color="#050505"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0.88" y2="1">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.28" stop-color="#F9D66B"/>
+      <stop offset="0.62" stop-color="#E7B63F"/>
+      <stop offset="1" stop-color="#C88C19"/>
     </linearGradient>
-    
-    <!-- Gradiente principal do ícone (Emerald para Neon Lime) -->
-    <linearGradient id="brandGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#0F8265" />
-      <stop offset="50%" stop-color="#54B859" />
-      <stop offset="100%" stop-color="#BCF24B" />
+    <linearGradient id="goldEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFF1A6"/>
+      <stop offset="0.35" stop-color="#E9B842"/>
+      <stop offset="0.7" stop-color="#B8790A"/>
+      <stop offset="1" stop-color="#F5D269"/>
     </linearGradient>
-    
-    <!-- Sombreamento suave para efeito de profundidade -->
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="16" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
-  <!-- Fundo Squircle (Canto arredondado premium) -->
-  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
-  
-  <!-- Círculo sutil de borda brilhante para efeito vítreo -->
-  <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="url(#brandGrad)" stroke-width="2" stroke-opacity="0.15" />
+  <rect x="0" y="0" width="1254" height="1254" fill="#000000"/>
+  <rect x="58" y="48" width="1138" height="1150" rx="166" fill="url(#bg)" stroke="url(#goldEdge)" stroke-width="19" filter="url(#shadow)"/>
+  <rect x="74" y="64" width="1106" height="1118" rx="150" fill="none" stroke="#FFE89A" stroke-opacity="0.72" stroke-width="3"/>
+  <rect x="84" y="74" width="1086" height="1098" rx="140" fill="none" stroke="#5D4615" stroke-opacity="0.55" stroke-width="2"/>
 
-  <!-- Grupo com efeito de brilho suave -->
-  <g filter="url(#glow)">
-    <!-- Barra vertical de fundo do cifrão (estilizada e inclinada) -->
-    <path d="M 256 70 L 256 442" stroke="url(#brandGrad)" stroke-width="36" stroke-linecap="round" opacity="0.85" />
-    
-    <!-- Símbolo do "S" estilizado e dinâmico, representando crescimento financeiro -->
-    <path d="M 370 175 C 370 115, 315 115, 256 120 C 190 125, 140 145, 140 205 C 140 280, 372 240, 372 315 C 372 375, 310 395, 256 395 C 190 395, 142 370, 142 310" 
-          fill="none" 
-          stroke="url(#brandGrad)" 
-          stroke-width="48" 
-          stroke-linecap="round" 
-          stroke-linejoin="round" />
-  </g>
-  
-  <!-- Detalhe decorativo: seta de crescimento financeiro no topo direito -->
-  <path d="M 340 130 L 385 130 L 385 175" fill="none" stroke="#BCF24B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M 396 1001 L 400 1003 L 465 1008 L 540 1011 L 707 1011 L 784 1008 L 859 1002 L 860 982 L 855 967 L 848 960 L 834 953 L 820 950 L 816 946 L 816 939 L 827 930 L 832 920 L 831 909 L 829 905 L 822 899 L 438 899 L 430 906 L 427 913 L 427 921 L 433 931 L 443 939 L 443 945 L 437 950 L 421 953 L 405 962 L 399 970 L 397 976 Z M 894 623 L 888 620 L 875 619 L 874 618 L 855 619 L 854 620 L 846 621 L 831 627 L 808 644 L 798 644 L 785 641 L 784 643 L 791 657 L 796 673 L 797 691 L 800 692 L 811 687 L 830 668 L 833 668 L 836 673 L 836 681 L 832 693 L 833 695 L 843 694 L 854 691 L 873 681 L 886 669 L 893 656 L 896 645 L 896 629 Z M 723 210 L 698 202 L 677 198 L 672 199 L 689 209 L 709 228 L 718 242 L 719 250 L 717 252 L 713 251 L 698 237 L 676 222 L 657 213 L 628 205 L 618 204 L 615 207 L 591 207 L 588 204 L 575 205 L 551 210 L 521 221 L 484 242 L 481 249 L 517 248 L 531 250 L 551 257 L 555 263 L 546 267 L 520 265 L 501 268 L 483 273 L 460 283 L 454 287 L 450 293 L 430 307 L 415 322 L 410 323 L 410 328 L 402 337 L 399 337 L 396 340 L 378 372 L 374 382 L 375 384 L 402 363 L 429 347 L 455 336 L 483 328 L 512 324 L 541 324 L 563 327 L 571 331 L 571 335 L 568 338 L 536 339 L 509 345 L 479 355 L 450 369 L 418 390 L 391 415 L 374 438 L 359 467 L 347 503 L 343 527 L 342 554 L 345 584 L 351 603 L 359 570 L 377 523 L 389 500 L 416 463 L 447 432 L 471 414 L 508 396 L 526 391 L 531 393 L 531 397 L 505 413 L 471 440 L 444 467 L 428 487 L 411 514 L 391 558 L 378 600 L 373 625 L 370 651 L 370 683 L 373 709 L 378 731 L 388 758 L 407 790 L 422 808 L 448 832 L 451 874 L 809 873 L 810 826 L 807 808 L 801 789 L 787 764 L 776 750 L 750 725 L 679 670 L 651 642 L 629 611 L 616 583 L 609 554 L 608 531 L 614 500 L 619 492 L 624 494 L 625 522 L 629 543 L 639 566 L 646 576 L 658 588 L 673 599 L 699 610 L 721 614 L 756 613 L 751 579 L 751 567 L 753 565 L 756 565 L 773 584 L 792 600 L 801 606 L 820 614 L 830 614 L 860 607 L 881 607 L 893 609 L 909 586 L 913 577 L 915 567 L 915 553 L 883 527 L 881 522 L 883 520 L 888 520 L 919 534 L 926 541 L 947 511 L 948 506 L 847 420 L 845 395 L 842 382 L 790 359 L 787 356 L 787 353 L 794 340 L 799 320 L 799 299 L 794 279 L 779 253 L 758 231 L 741 219 Z M 747 420 L 749 418 L 788 414 L 797 410 L 799 408 L 803 408 L 806 413 L 806 424 L 807 425 L 808 434 L 821 468 L 821 473 L 819 475 L 817 475 L 802 456 L 751 426 L 747 422 Z M 653 299 L 666 302 L 689 315 L 732 349 L 732 353 L 727 355 L 664 327 L 658 329 L 649 327 L 636 335 L 630 345 L 627 358 L 628 377 L 635 397 L 640 397 L 657 393 L 665 393 L 667 395 L 667 399 L 620 432 L 595 457 L 575 487 L 565 507 L 557 529 L 552 552 L 550 574 L 551 599 L 557 630 L 568 660 L 584 691 L 598 712 L 622 740 L 622 743 L 617 745 L 603 734 L 581 712 L 558 681 L 542 649 L 532 614 L 529 589 L 529 567 L 534 532 L 545 498 L 556 475 L 565 461 L 564 459 L 538 478 L 510 507 L 488 537 L 471 569 L 459 602 L 453 630 L 452 672 L 454 695 L 452 697 L 447 694 L 439 671 L 436 650 L 436 630 L 440 601 L 448 571 L 460 542 L 478 510 L 506 475 L 543 442 L 582 418 L 621 401 L 613 386 L 607 368 L 605 356 L 607 332 L 614 317 L 625 306 L 636 301 Z" fill="url(#gold)" fill-rule="evenodd" stroke="#F8D872" stroke-width="2.2" stroke-linejoin="round" filter="url(#softGlow)"/>
 </svg>
