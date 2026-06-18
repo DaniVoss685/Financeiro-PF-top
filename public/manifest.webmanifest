@@ -1,6 +1,6 @@
 {
-  "name": "Financeiro PF",
-  "short_name": "Financeiro PF",
+  "name": "Contaju Pessoal",
+  "short_name": "Contaju Pessoal",
   "description": "Controle financeiro pessoal e inteligente com insights de IA.",
   "start_url": "/",
   "display": "standalone",

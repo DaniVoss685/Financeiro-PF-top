@@ -11,7 +11,7 @@ import { Modal } from '../components/ui/Modal';
 export default function AiInsightsPage() {
   const { transactions, categories, banks, goals, creditCards } = useAppContext();
   const [messages, setMessages] = useState([
-    { role: 'ai', text: 'Olá! Sou seu assistente Noble Finance. Analisei suas transações e estou pronto para transformar seus dados em estratégia. Como posso te ajudar hoje?' }
+    { role: 'ai', text: 'Olá! Sou seu assistente Contaju Pessoal. Analisei suas transações e estou pronto para transformar seus dados em estratégia. Como posso te ajudar hoje?' }
   ]);
   const [input, setInput] = useState('');
 
@@ -435,7 +435,7 @@ export default function AiInsightsPage() {
                   <div className="absolute inset-0 bg-primary/10 animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg tracking-tight">Conselheiro Noble AI</h3>
+                  <h3 className="font-bold text-lg tracking-tight">Conselheiro Contaju AI</h3>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Estrategista Financeiro Ativo</span>

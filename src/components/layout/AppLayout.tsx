@@ -107,12 +107,12 @@ export function AppLayout() {
 
         const txTypeName = relatedTx?.type === 'INCOME' ? 'Recebimento' : 'Pagamento';
         
-        const message = `🔔 *Noble Finance - Alerta de ${txTypeName}* 🔔\n\n` +
+        const message = `🔔 *Contaju Pessoal - Alerta de ${txTypeName}* 🔔\n\n` +
                         `📝 *Nome:* ${txName}\n` +
                         `💰 *Valor:* ${txAmount}\n` +
                         `📅 *Vencimento:* ${format(new Date(reminder.dueDate.includes('T') ? reminder.dueDate : reminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
                         `${warningText}\n\n` +
-                        `Noble Finance App 💰`;
+                        `Contaju Pessoal 💰`;
 
         try {
           const res = await sendWhatsAppMessage(cachedPhone, message, activeSettings);
@@ -236,8 +236,8 @@ export function AppLayout() {
       <header className="flex items-center justify-between px-6 py-4 bg-background z-30">
         <div className="w-auto sm:w-56 flex items-center shrink-0">
           <span className="text-foreground font-black font-display text-lg sm:text-2xl tracking-tighter flex items-center gap-1 uppercase italic select-none">
-            <span className="text-foreground">Noble</span>
-            <span className="text-primary">Finance</span>
+            <span className="text-foreground">Contaju</span>
+            <span className="text-primary">Pessoal</span>
           </span>
         </div>
 
@@ -557,12 +557,12 @@ export function AppLayout() {
                         ? `🚨 *ATENÇÃO:* Esta transação vence *hoje*!` 
                         : `📅 *Aviso:* Esta transação vence em breve!`;
 
-                      const message = `🔔 *Noble Finance - Lembrete de ${relatedTx?.type === 'INCOME' ? 'Recebimento' : 'Pagamento'}* 🔔\n\n` +
+                      const message = `🔔 *Contaju Pessoal - Lembrete de ${relatedTx?.type === 'INCOME' ? 'Recebimento' : 'Pagamento'}* 🔔\n\n` +
                                       `📝 *Nome:* ${txName}\n` +
                                       `💰 *Valor:* ${txAmount}\n` +
                                       `📅 *Vencimento:* ${format(new Date(activeReminder.dueDate.includes('T') ? activeReminder.dueDate : activeReminder.dueDate + 'T12:00:00'), "dd/MM/yyyy")}\n\n` +
                                       `${warningText}\n\n` +
-                                      `Noble Finance App 💰`;
+                                      `Contaju Pessoal 💰`;
                                       
                       const res = await sendWhatsAppMessage(cachedPhone, message, activeSettings);
                       if (res.success) {

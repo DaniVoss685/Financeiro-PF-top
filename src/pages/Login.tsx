@@ -173,7 +173,7 @@ export default function LoginPage() {
       >
         <div className="text-center mb-8">
           <span className="text-foreground font-black font-display text-3xl tracking-tighter flex items-center justify-center gap-1.5 uppercase italic">
-            Noble <span className="text-primary">Finance</span>
+            Contaju <span className="text-primary">Pessoal</span>
           </span>
           <p className="text-xs text-muted-foreground mt-2 tracking-wide font-medium">
             Gestão inteligente de despesas com alertas integrados via WhatsApp

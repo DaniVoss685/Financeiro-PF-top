@@ -30,7 +30,7 @@ export default function NotificationsSettings() {
   });
 
   const [testPhone, setTestPhone] = useState(localStorage.getItem('evolution_test_phone') || '');
-  const [testMessage, setTestMessage] = useState('Olá! Este é um teste da integração do WhatsApp através da Evolution API com o Noble Finance. Seus lembretes estão funcionando perfeitamente! 🚀');
+  const [testMessage, setTestMessage] = useState('Olá! Este é um teste da integração do WhatsApp através da Evolution API com o Contaju Pessoal. Seus lembretes estão funcionando perfeitamente! 🚀');
   const [showApiKey, setShowApiKey] = useState(false);
   
   // Connection states
