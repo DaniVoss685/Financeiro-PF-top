@@ -7,6 +7,16 @@ interface MobilePreviewWrapperProps {
 }
 
 export function MobilePreviewWrapper({ children }: MobilePreviewWrapperProps) {
+  const isLocalhost = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' || 
+    window.location.hostname === '127.0.0.1' || 
+    window.location.hostname.startsWith('192.168.')
+  );
+
+  if (!isLocalhost) {
+    return <>{children}</>;
+  }
+
   const [isPreviewEnabled, setIsPreviewEnabled] = useState(false);
   const [isIframe, setIsIframe] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
