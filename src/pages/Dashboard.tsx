@@ -842,7 +842,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-4 lg:p-6 pb-24 w-full relative">
+    <div className="min-h-screen bg-background text-foreground p-4 lg:p-6 pb-24 w-full relative overflow-x-hidden">
       {/* Modals Section */}
       <Modal isOpen={activeModal === 'new_transaction_income' || activeModal === 'new_transaction_expense'} 
              onClose={closeModal} 
@@ -2022,7 +2022,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Chart Area */}
-                <div className="ml-10 absolute inset-0 bottom-6 flex items-end gap-1.5 sm:gap-3">
+                <div className="absolute left-10 right-0 top-0 bottom-6 flex items-end gap-1.5 sm:gap-3">
                   {cashFlowData.map((d, i) => {
                     const heightValue = Math.max(5, (Math.abs(d.balance) / maxBalance) * 100);
                     return (
@@ -2083,7 +2083,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* X Axis */}
-                <div className="ml-10 absolute bottom-0 left-0 right-0 flex justify-between text-[9px] text-muted-foreground font-black pt-2 border-t border-border/50 italic">
+                <div className="absolute bottom-0 left-10 right-0 flex justify-between text-[9px] text-muted-foreground font-black pt-2 border-t border-border/50 italic">
                   {cashFlowData.map((d, i) => (
                     <div key={i} className={cn("flex-1 text-center truncate", d.isCurrent && "text-primary")}>{d.name}</div>
                   ))}

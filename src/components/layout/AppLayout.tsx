@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAppContext } from '../../store/AppContext';
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
@@ -42,6 +42,15 @@ const MENU_ITEMS = [
 ];
 
 export function AppLayout() {
+  const location = useLocation();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [location.pathname]);
+
   const { theme, toggleTheme, notifications, markTransactionAsPaid, payAllOverdue, reminders, completeReminder, transactions, updateReminder, currentUser, logoutUser } = useAppContext();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -713,7 +722,7 @@ export function AppLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col relative overflow-hidden bg-background">
-          <div className="flex-1 overflow-y-auto no-scrollbar z-10 w-full h-full pb-20 md:pb-0">
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar z-10 w-full h-full pb-20 md:pb-0">
             <Outlet />
           </div>
         </main>
