@@ -27,7 +27,7 @@ if (workbox) {
         return Promise.all(
           cacheNames.map((cacheName) => {
             // Se houver algum cache antigo que não seja o atual, deletamos
-            if (cacheName !== 'financeiro-pf-static-v2' && cacheName !== 'financeiro-pf-images-v2' && cacheName !== 'financeiro-pf-pages-v2') {
+            if (cacheName !== 'financeiro-pf-static-v3' && cacheName !== 'financeiro-pf-images-v3' && cacheName !== 'financeiro-pf-pages-v3') {
               console.log('Deletando cache antigo:', cacheName);
               return caches.delete(cacheName);
             }
@@ -42,7 +42,7 @@ if (workbox) {
   registerRoute(
     ({ request }) => request.mode === 'navigate',
     new NetworkFirst({
-      cacheName: 'financeiro-pf-pages-v2',
+      cacheName: 'financeiro-pf-pages-v3',
       plugins: [
         new CacheableResponsePlugin({
           statuses: [0, 200]
@@ -71,7 +71,7 @@ if (workbox) {
       );
     },
     new StaleWhileRevalidate({
-      cacheName: 'financeiro-pf-static-v2',
+      cacheName: 'financeiro-pf-static-v3',
       plugins: [
         new CacheableResponsePlugin({
           statuses: [0, 200]
@@ -96,7 +96,7 @@ if (workbox) {
       );
     },
     new CacheFirst({
-      cacheName: 'financeiro-pf-images-v2',
+      cacheName: 'financeiro-pf-images-v3',
       plugins: [
         new CacheableResponsePlugin({
           statuses: [0, 200]
