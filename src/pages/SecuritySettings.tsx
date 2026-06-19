@@ -3,7 +3,7 @@ import { useAppContext } from '../store/AppContext';
 import { Lock, Eye, EyeOff, Check, RefreshCw } from 'lucide-react';
 
 export default function SecuritySettings() {
-  const { currentUser, updateUserProfile } = useAppContext();
+  const { currentUser, updateUserPassword, verifyCurrentPassword } = useAppContext();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -13,7 +13,7 @@ export default function SecuritySettings() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -23,13 +23,8 @@ export default function SecuritySettings() {
       return;
     }
 
-    if (currentPassword !== currentUser?.password) {
-      setError('A senha atual digitada está incorreta.');
-      return;
-    }
-
-    if (newPassword.length < 3) {
-      setError('A nova senha deve possuir ao menos 3 caracteres.');
+    if (newPassword.length < 6) {
+      setError('A nova senha deve possuir ao menos 6 caracteres.');
       return;
     }
 
@@ -39,16 +34,28 @@ export default function SecuritySettings() {
     }
 
     setUpdating(true);
-    setTimeout(() => {
-      updateUserProfile({
-        password: newPassword
-      });
+    try {
+      const isCurrentValid = await verifyCurrentPassword(currentPassword);
+      if (!isCurrentValid) {
+        setError('A senha atual digitada está incorreta.');
+        setUpdating(false);
+        return;
+      }
+
+      const successUpdate = await updateUserPassword(newPassword);
+      if (successUpdate) {
+        setSuccess('Senha alterada com sucesso!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        setError('Ocorreu um erro ao atualizar a senha no servidor.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ocorreu um erro no processo.');
+    } finally {
       setUpdating(false);
-      setSuccess('Senha alterada com sucesso!');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }, 600);
+    }
   };
 
   return (

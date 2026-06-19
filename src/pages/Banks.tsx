@@ -291,6 +291,17 @@ export default function BanksPage() {
               />
             </div>
 
+            <PremiumSelect 
+              label="Tipo de Conta"
+              options={[
+                { value: 'CHECKING', label: 'Conta Corrente' },
+                { value: 'SAVINGS', label: 'Conta Poupança' },
+                { value: 'INVESTMENT', label: 'Investimentos' },
+                { value: 'CASH', label: 'Dinheiro em Espécie' }
+              ]}
+              value={formData.type}
+              onChange={val => setFormData({...formData, type: val as any})}
+            />
 
             <PremiumCurrencyInput 
               label="Saldo Inicial"

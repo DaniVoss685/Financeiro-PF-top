@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { useAppContext } from '../store/AppContext';
-import { Camera, User, Phone, Check, RefreshCw } from 'lucide-react';
+import { Camera, User, Phone, Check, RefreshCw, Play } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const PRESET_AVATARS = ['👑', '🦁', '🦉', '💎', '💼', '🚀', '🧠', '🌟', '🦄', '🐆'];
 
 export default function ProfileSettings() {
-  const { currentUser, updateUserProfile } = useAppContext();
+  const { currentUser, updateUserProfile, resetOnboarding } = useAppContext();
   const [name, setName] = useState(currentUser?.name || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [avatar, setAvatar] = useState(currentUser?.avatar || '👑');
@@ -14,6 +15,7 @@ export default function ProfileSettings() {
   const [updating, setUpdating] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -241,6 +243,73 @@ export default function ProfileSettings() {
           )}
         </button>
       </form>
+
+      <div className="pt-6 border-t border-border/40 mt-8 space-y-4">
+        <h3 className="text-sm font-bold text-foreground">Central de Ajuda</h3>
+        <div className="p-5 rounded-2xl bg-muted/10 border border-border/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h4 className="text-xs font-bold text-foreground">Guia de Boas-Vindas (Onboarding)</h4>
+            <p className="text-xs text-muted-foreground">Deseja rever o passo a passo guiado sobre o funcionamento de bancos, cartões, categorias e lançamentos no sistema?</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowResetConfirm(true)}
+            className="px-4 py-2.5 bg-muted/50 hover:bg-muted text-foreground border border-border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer self-start sm:self-auto"
+          >
+            Iniciar Onboarding
+          </button>
+        </div>
+      </div>
+
+      {/* Modal de Confirmação do Reinício do Tour */}
+      <AnimatePresence>
+        {showResetConfirm && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+              onClick={() => setShowResetConfirm(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm bg-card border border-border/80 rounded-[2rem] shadow-2xl p-6 z-10 space-y-6 text-center"
+            >
+              <div className="w-12 h-12 bg-primary/20 text-primary rounded-full flex items-center justify-center mx-auto animate-pulse">
+                <Play className="w-6 h-6 fill-primary" />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-foreground">Reiniciar o Tour Guiado?</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+                  Isso irá redefinir o seu progresso de boas-vindas para o primeiro passo, guiando você pelas principais telas do sistema.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="py-3 border border-border rounded-xl text-xs font-black text-muted-foreground hover:bg-muted/50 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowResetConfirm(false);
+                    await resetOnboarding();
+                  }}
+                  className="py-3 bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl text-xs font-black transition-all cursor-pointer shadow-md"
+                >
+                  Sim, Reiniciar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

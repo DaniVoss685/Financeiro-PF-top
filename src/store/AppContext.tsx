@@ -155,6 +155,11 @@ interface AppState {
   loginUser: (username: string, password?: string) => Promise<boolean>;
   logoutUser: () => Promise<void>;
   updateUserProfile: (updates: Partial<User>) => Promise<void>;
+  updateUserPassword: (newPassword: string) => Promise<boolean>;
+  verifyCurrentPassword: (password: string) => Promise<boolean>;
+  onboardingCompleted: boolean;
+  completeOnboarding: () => Promise<void>;
+  resetOnboarding: () => Promise<void>;
 }
 
 export interface Notification {
@@ -197,6 +202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [defaultBankId, setDefaultBankId] = useState<string | null>(null);
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(true);
 
   // States per user
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -454,6 +460,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if ((!dbBanks || dbBanks.length === 0) && email === 'noble@noblefinance.com') {
             // First time user, seed!
             await seedDefaultDataForUser(uId);
+            setOnboardingCompleted(false);
           } else {
             setBanks(dbBanks.map(b => ({
               id: b.id,
@@ -497,6 +504,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const customizations = settingsObj?.category_customizations || {};
             const defBankId = settingsObj?.default_bank_id || null;
             setDefaultBankId(defBankId);
+            setOnboardingCompleted(settingsObj?.onboarding_completed === undefined ? false : !!settingsObj.onboarding_completed);
 
             // Merge local mocks with DB categories to ensure defaults are always available, prioritizing DB values and applying customizations
             const dbCatIds = new Set((dbCategories || []).map(dbc => dbc.id));
@@ -1607,6 +1615,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     setCurrentUser(null);
     setDefaultBankId(null);
+    setOnboardingCompleted(true);
   };
 
   const setDefaultBank = async (bankId: string | null) => {
@@ -1652,6 +1661,102 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }).eq('id', currentUser.id);
   };
 
+  const verifyCurrentPassword = async (password: string): Promise<boolean> => {
+    if (!currentUser) return false;
+    try {
+      const email = currentUser.username.includes('@')
+        ? currentUser.username
+        : `${currentUser.username.toLowerCase().trim()}@noblefinance.com`;
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      return !error && !!data.user;
+    } catch (e) {
+      console.error("Error verifying current password:", e);
+      return false;
+    }
+  };
+
+  const updateUserPassword = async (newPassword: string): Promise<boolean> => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) {
+        console.error("Error updating password:", error);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error("Error in updateUserPassword:", e);
+      return false;
+    }
+  };
+
+  const completeOnboarding = async () => {
+    if (!currentUser) return;
+    setOnboardingCompleted(true);
+
+    const { data: dbSettings } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', currentUser.id);
+
+    const userSettingsRow = dbSettings && dbSettings.length > 0 ? dbSettings[0] : null;
+    let settingsObj = userSettingsRow?.settings || {};
+    if (typeof settingsObj === 'string') {
+      try {
+        settingsObj = JSON.parse(settingsObj);
+      } catch (e) {
+        settingsObj = {};
+      }
+    }
+
+    const newSettings = {
+      ...settingsObj,
+      onboarding_completed: true
+    };
+
+    await supabase.from('user_settings').upsert({
+      user_id: currentUser.id,
+      settings: newSettings,
+      updated_at: new Date().toISOString()
+    });
+  };
+
+  const resetOnboarding = async () => {
+    if (!currentUser) return;
+    setOnboardingCompleted(false);
+
+    const { data: dbSettings } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', currentUser.id);
+
+    const userSettingsRow = dbSettings && dbSettings.length > 0 ? dbSettings[0] : null;
+    let settingsObj = userSettingsRow?.settings || {};
+    if (typeof settingsObj === 'string') {
+      try {
+        settingsObj = JSON.parse(settingsObj);
+      } catch (e) {
+        settingsObj = {};
+      }
+    }
+
+    const newSettings = {
+      ...settingsObj,
+      onboarding_completed: false
+    };
+
+    await supabase.from('user_settings').upsert({
+      user_id: currentUser.id,
+      settings: newSettings,
+      updated_at: new Date().toISOString()
+    });
+  };
+
   return (
     <AppContext.Provider value={{
       theme, banks, creditCards, categories, transactions, goals, notifications, recurringHistory,
@@ -1660,6 +1765,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addReminder, updateReminder, deleteReminder, completeReminder, reminders,
       addRecurringHistoryEntry, cloneRecurringHistory,
       currentUser, registerUser, loginUser, logoutUser, updateUserProfile,
+      updateUserPassword, verifyCurrentPassword,
+      onboardingCompleted, completeOnboarding, resetOnboarding,
       defaultBankId, setDefaultBank
     }}>
       {children}

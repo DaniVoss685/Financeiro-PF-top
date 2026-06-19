@@ -172,6 +172,9 @@ export default function LoginPage() {
         className="w-full max-w-lg bg-card border border-border/80 rounded-3xl p-6 md:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)] z-10 relative overflow-hidden"
       >
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <img src="/icon-v2.svg" className="w-16 h-16 object-contain shadow-lg shadow-black/15" alt="Logo Contaju" />
+          </div>
           <span className="text-foreground font-black font-display text-3xl tracking-tighter flex items-center justify-center gap-1.5 uppercase italic">
             Contaju <span className="text-primary">Pessoal</span>
           </span>

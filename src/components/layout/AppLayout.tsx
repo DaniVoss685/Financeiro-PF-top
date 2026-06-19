@@ -24,10 +24,12 @@ import {
   RefreshCcw as PayAllIcon,
   MessageSquare,
   Check,
-  Loader2
+  Loader2,
+  HelpCircle
 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { getEvolutionSettings, sendWhatsAppMessage } from '../../lib/EvolutionService';
+import { OnboardingTour } from '../onboarding/OnboardingTour';
 
 const MENU_ITEMS = [
   { name: 'Dashboard', icon: Home, path: '/' },
@@ -38,6 +40,7 @@ const MENU_ITEMS = [
   { name: 'Metas', icon: Target, path: '/goals' },
   { name: 'Bancos', icon: Landmark, path: '/banks' },
   { name: 'Categorias', icon: LayoutGrid, path: '/categories' },
+  { name: 'Dúvidas', icon: HelpCircle, path: '/faq' },
   { name: 'Configurações', icon: Settings, path: '/settings' },
 ];
 
@@ -244,7 +247,8 @@ export function AppLayout() {
       {/* Top Header */}
       <header className="flex items-center justify-between px-6 py-4 bg-background z-30">
         <div className="w-auto sm:w-56 flex items-center shrink-0">
-          <span className="text-foreground font-black font-display text-lg sm:text-2xl tracking-tighter flex items-center gap-1 uppercase italic select-none">
+          <span className="text-foreground font-black font-display text-lg sm:text-2xl tracking-tighter flex items-center gap-2.5 uppercase italic select-none">
+            <img src="/icon-v2.svg" className="w-7 h-7 sm:w-9 sm:h-9 object-contain shrink-0" alt="Contaju Pessoal" />
             <span className="text-foreground">Contaju</span>
             <span className="text-primary">Pessoal</span>
           </span>
@@ -832,6 +836,7 @@ export function AppLayout() {
           </div>
         </div>
       </div>
+      <OnboardingTour />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import GoalsPage from './pages/Goals';
 import RecurringPage from './pages/Recurring';
 import AiInsightsPage from './pages/AiInsights';
 import CategoriesPage from './pages/Categories';
+import FaqPage from './pages/Faq';
 
 import SettingsPage from './pages/Settings';
 import NotificationsSettings from './pages/NotificationsSettings';
@@ -44,6 +45,7 @@ function AppContent() {
           
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/ai-insights" element={<AiInsightsPage />} />
+          <Route path="/faq" element={<FaqPage />} />
           
           {/* Catch-all route to prevent blank screens */}
           <Route path="*" element={<Navigate to="/" replace />} />
