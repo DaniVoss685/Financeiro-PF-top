@@ -1466,7 +1466,9 @@ export default function TransactionsPage() {
                           }
                         }}>
                    <div className="flex flex-col">
-                     <span className="text-xs font-semibold tracking-tight text-foreground/90">Confirmar Pagamento / Recebimento</span>
+                     <span className="text-xs font-semibold tracking-tight text-foreground/90">
+                       {formData.type === 'INCOME' ? "Confirmar Recebimento" : "Confirmar Pagamento"}
+                     </span>
                      <span className="text-[10px] text-muted-foreground">
                        {formData.creditCardId ? "Despesas no cartão são pagas na fatura" : "Esta transação já foi realizada?"}
                      </span>
