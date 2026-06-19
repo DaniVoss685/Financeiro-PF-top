@@ -68,6 +68,22 @@ export interface Transaction {
   affectLimitImmediately?: boolean;
 }
 
+export interface OfflineSyncItem {
+  id: string;
+  type: 'ADD_TRANSACTION';
+  data: Transaction;
+  userId: string;
+  bankUpdate?: {
+    bankId: string;
+    amount: number;
+  };
+  goalUpdate?: {
+    goalId: string;
+    amount: number;
+  };
+  createdAt: string;
+}
+
 export interface Goal {
   id: string;
   name: string;
@@ -197,6 +213,26 @@ const mockTransactions: Transaction[] = [
 ];
 
 const AppContext = createContext<AppState | undefined>(undefined);
+
+function getOfflineQueue(userId: string): OfflineSyncItem[] {
+  try {
+    const key = `financeiro_pf_offline_queue_${userId}`;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.error("Error reading offline queue from localStorage:", e);
+    return [];
+  }
+}
+
+function saveOfflineQueue(userId: string, queue: OfflineSyncItem[]) {
+  try {
+    const key = `financeiro_pf_offline_queue_${userId}`;
+    localStorage.setItem(key, JSON.stringify(queue));
+  } catch (e) {
+    console.error("Error writing offline queue to localStorage:", e);
+  }
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
@@ -566,7 +602,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               linkedGoalId: t.linked_goal_id,
               affectLimitImmediately: t.affect_limit_immediately !== false
             }));
-            setTransactions(mappedTransactions);
+            
+            // Mesclar transações offline locais que ainda não foram sincronizadas na inicialização
+            const localQueue = getOfflineQueue(uId);
+            const offlineTransactions = localQueue.map(item => item.data);
+            const allTransactions = [...mappedTransactions, ...offlineTransactions];
+            setTransactions(allTransactions);
 
             setGoals((dbGoals || []).map(g => ({
               id: g.id,
@@ -627,6 +668,136 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRecurringHistory([]);
       setIsLoaded(false);
     }
+  }, [currentUser]);
+
+  const syncOfflineTransactions = async (userId: string) => {
+    if ((syncOfflineTransactions as any).running) return;
+    (syncOfflineTransactions as any).running = true;
+
+    try {
+      const queue = getOfflineQueue(userId);
+      if (queue.length === 0) {
+        (syncOfflineTransactions as any).running = false;
+        return;
+      }
+
+      console.log(`[Offline Sync] Detectados ${queue.length} lançamentos pendentes.`);
+      const remainingQueue: OfflineSyncItem[] = [];
+
+      for (const item of queue) {
+        try {
+          // 1. Inserir a transação no Supabase
+          const { error: txError } = await supabase.from('transactions').insert({
+            id: item.data.id,
+            user_id: userId,
+            type: item.data.type,
+            description: item.data.description,
+            amount: item.data.amount,
+            category_id: item.data.categoryId,
+            bank_id: item.data.bankId,
+            credit_card_id: item.data.creditCardId,
+            competence_date: item.data.competenceDate,
+            due_date: item.data.dueDate,
+            payment_date: item.data.paymentDate,
+            status: item.data.status,
+            is_recurring: item.data.isRecurring,
+            is_installment: item.data.isInstallment,
+            is_partial: item.data.isPartial || false,
+            notes: item.data.notes,
+            installment_total: item.data.installmentTotal,
+            installment_current: item.data.installmentCurrent,
+            recurring_exclusions: item.data.recurringExclusions || [],
+            linked_goal_id: item.data.linkedGoalId,
+            affect_limit_immediately: item.data.affectLimitImmediately !== false
+          });
+
+          if (txError) {
+            // Se for chave duplicada, significa que já foi inserida
+            if (txError.code !== '23505') {
+              throw txError;
+            }
+          }
+
+          // 2. Processar saldo bancário no Supabase via Delta
+          if (item.bankUpdate) {
+            const { bankId, amount } = item.bankUpdate;
+            const { data: bankData, error: bankFetchError } = await supabase
+              .from('banks')
+              .select('current_balance')
+              .eq('id', bankId)
+              .single();
+            
+            if (!bankFetchError && bankData) {
+              const currentBal = Number(bankData.current_balance);
+              const newBal = currentBal + amount;
+              await supabase
+                .from('banks')
+                .update({ current_balance: newBal })
+                .eq('id', bankId);
+            }
+          }
+
+          // 3. Processar metas no Supabase via Delta
+          if (item.goalUpdate) {
+            const { goalId, amount } = item.goalUpdate;
+            const { data: goalData, error: goalFetchError } = await supabase
+              .from('goals')
+              .select('current_amount')
+              .eq('id', goalId)
+              .single();
+
+            if (!goalFetchError && goalData) {
+              const currentAmt = Number(goalData.current_amount);
+              const newAmt = currentAmt + amount;
+              await supabase
+                .from('goals')
+                .update({ current_amount: newAmt })
+                .eq('id', goalId);
+            }
+          }
+
+          console.log(`[Offline Sync] Transação ${item.data.id} sincronizada com sucesso.`);
+        } catch (itemError) {
+          console.error(`[Offline Sync] Falha ao sincronizar item ${item.id}:`, itemError);
+          remainingQueue.push(item);
+        }
+      }
+
+      saveOfflineQueue(userId, remainingQueue);
+    } catch (e) {
+      console.error("[Offline Sync] Erro geral na sincronização:", e);
+    } finally {
+      (syncOfflineTransactions as any).running = false;
+    }
+  };
+
+  // Efeito para sincronização em background
+  useEffect(() => {
+    if (!currentUser) return;
+    const uId = currentUser.id;
+
+    // Tentar sincronizar ao montar/logar
+    if (navigator.onLine) {
+      syncOfflineTransactions(uId);
+    }
+
+    const handleOnline = () => {
+      console.log("[Offline Sync] Conexão ativa, tentando sincronizar...");
+      syncOfflineTransactions(uId);
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        syncOfflineTransactions(uId);
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      clearInterval(interval);
+    };
   }, [currentUser]);
 
   const notifications: Notification[] = (() => {
@@ -803,7 +974,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const amount = t.type === 'INCOME' ? t.amount : -t.amount;
           const updatedBal = bank.currentBalance + amount;
           
-          supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          if (navigator.onLine) {
+            supabase.from('banks').update({ current_balance: updatedBal }).eq('id', bank.id).then();
+          }
           
           return { ...bank, currentBalance: updatedBal };
         }
@@ -819,7 +992,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
        setGoals(prevGoals => prevGoals.map(goal => {
          if (goal.id === t.linkedGoalId) {
            const updatedAmt = goal.currentAmount + t.amount;
-           supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+           if (navigator.onLine) {
+             supabase.from('goals').update({ current_amount: updatedAmt }).eq('id', goal.id).then();
+           }
            return { ...goal, currentAmount: updatedAmt };
          }
          return goal;
@@ -849,33 +1024,87 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTimeout(() => addTransaction(incomeTransaction), 100);
     }
 
-    supabase.from('transactions').insert({
-      id: newId,
-      user_id: currentUser.id,
-      type: t.type,
-      description: t.description,
-      amount: t.amount,
-      category_id: t.categoryId,
-      bank_id: t.bankId,
-      credit_card_id: t.creditCardId,
-      competence_date: t.competenceDate,
-      due_date: t.dueDate,
-      payment_date: t.paymentDate,
-      status: t.status,
-      is_recurring: t.isRecurring,
-      is_installment: t.isInstallment,
-      is_partial: t.isPartial || false,
-      notes: t.notes,
-      installment_total: t.installmentTotal,
-      installment_current: t.installmentCurrent,
-      recurring_exclusions: t.recurringExclusions || [],
-      linked_goal_id: t.linkedGoalId,
-      affect_limit_immediately: t.affectLimitImmediately !== false
-    }).then(async () => {
+    // Preparar dados para o salvamento offline de contingência
+    let bankUpdate: any = undefined;
+    if (t.status === 'PAID' || t.status === 'RECEIVED') {
+      const amount = t.type === 'INCOME' ? t.amount : -t.amount;
+      bankUpdate = { bankId: t.bankId, amount };
+    }
+
+    let goalUpdate: any = undefined;
+    if (t.linkedGoalId && t.type === 'EXPENSE' && (t.status === 'PAID' || t.status === 'RECEIVED')) {
+      goalUpdate = { goalId: t.linkedGoalId, amount: t.amount };
+    }
+
+    const txData: Transaction = {
+      ...newTransaction,
+      categoryId: t.categoryId,
+      bankId: t.bankId,
+      creditCardId: t.creditCardId,
+      linkedGoalId: t.linkedGoalId
+    };
+
+    const saveOffline = () => {
+      console.log(`[Offline Save] Salvando transação ${newId} localmente para envio posterior.`);
+      const queue = getOfflineQueue(currentUser.id);
+      queue.push({
+        id: newId,
+        type: 'ADD_TRANSACTION',
+        data: txData,
+        userId: currentUser.id,
+        bankUpdate,
+        goalUpdate,
+        createdAt: new Date().toISOString()
+      });
+      saveOfflineQueue(currentUser.id, queue);
+    };
+
+    if (!navigator.onLine) {
+      saveOffline();
       if (t.isRecurring) {
         addRecurringHistoryEntry(newId, t.amount, t.competenceDate.substring(0, 7));
       }
-    });
+    } else {
+      (async () => {
+        try {
+          const { error } = await supabase.from('transactions').insert({
+            id: newId,
+            user_id: currentUser.id,
+            type: t.type,
+            description: t.description,
+            amount: t.amount,
+            category_id: t.categoryId,
+            bank_id: t.bankId,
+            credit_card_id: t.creditCardId,
+            competence_date: t.competenceDate,
+            due_date: t.dueDate,
+            payment_date: t.paymentDate,
+            status: t.status,
+            is_recurring: t.isRecurring,
+            is_installment: t.isInstallment,
+            is_partial: t.isPartial || false,
+            notes: t.notes,
+            installment_total: t.installmentTotal,
+            installment_current: t.installmentCurrent,
+            recurring_exclusions: t.recurringExclusions || [],
+            linked_goal_id: t.linkedGoalId,
+            affect_limit_immediately: t.affectLimitImmediately !== false
+          });
+
+          if (error) {
+            console.error("[Offline Check] Erro ao salvar transação no Supabase, salvando offline:", error);
+            saveOffline();
+          }
+        } catch (err) {
+          console.error("[Offline Check] Erro na requisição do Supabase (exceção), salvando offline:", err);
+          saveOffline();
+        } finally {
+          if (t.isRecurring) {
+            addRecurringHistoryEntry(newId, t.amount, t.competenceDate.substring(0, 7));
+          }
+        }
+      })();
+    }
 
     return newId;
   };
