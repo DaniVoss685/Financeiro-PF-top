@@ -257,6 +257,8 @@ export default function DashboardPage() {
     date: format(new Date(), 'yyyy-MM-dd'),
   });
 
+  const [transferSuccessInfo, setTransferSuccessInfo] = useState<{ fromBank: string; toBank: string; amount: number } | null>(null);
+
   const handleExecuteTransfer = () => {
     if (!transferData.fromBankId || !transferData.toBankId || transferData.amount <= 0) return;
     if (transferData.fromBankId === transferData.toBankId) return;
@@ -301,6 +303,7 @@ export default function DashboardPage() {
       notes: 'Transferência entre contas'
     });
 
+    const successInfo = { fromBank: fromBank.name, toBank: toBank.name, amount: transferData.amount };
     setTransferData({
       description: 'Transferência entre contas',
       amount: 0,
@@ -309,6 +312,7 @@ export default function DashboardPage() {
       date: format(new Date(), 'yyyy-MM-dd'),
     });
     setActiveModal(null);
+    setTransferSuccessInfo(successInfo);
   };
 
   const [newReminder, setNewReminder] = useState({
@@ -1408,6 +1412,66 @@ export default function DashboardPage() {
             )}
           >
             Confirmar Transferência
+          </button>
+        </div>
+      </Modal>
+
+      {/* Modal de Sucesso da Transferência */}
+      <Modal isOpen={!!transferSuccessInfo} onClose={() => setTransferSuccessInfo(null)} title="">
+        <div className="flex flex-col items-center text-center py-4 pb-6 gap-5">
+          {/* Ícone animado de sucesso */}
+          <div className="relative flex items-center justify-center">
+            <div className="w-20 h-20 rounded-full bg-blue-500/15 flex items-center justify-center animate-pulse">
+              <div className="w-14 h-14 rounded-full bg-blue-500/25 flex items-center justify-center">
+                <ArrowLeftRight className="w-7 h-7 text-blue-500" />
+              </div>
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xl font-bold text-foreground mb-1">Transferência Realizada!</h3>
+            <p className="text-sm text-muted-foreground">A operação foi concluída com sucesso.</p>
+          </div>
+
+          {/* Card de detalhes */}
+          <div className="w-full bg-muted/30 border border-border/40 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground font-medium">Valor transferido</span>
+              <span className="text-base font-black text-blue-500">{formatCurrency(transferSuccessInfo?.amount || 0)}</span>
+            </div>
+            <div className="border-t border-border/30" />
+            <div className="flex items-center gap-3">
+              <div className="flex-1 text-left">
+                <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Conta de Origem</p>
+                <p className="text-sm font-bold text-foreground">{transferSuccessInfo?.fromBank}</p>
+                <span className="text-[10px] text-red-400 font-bold">Débito lançado</span>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <ArrowLeftRight className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="flex-1 text-right">
+                <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Conta de Destino</p>
+                <p className="text-sm font-bold text-foreground">{transferSuccessInfo?.toBank}</p>
+                <span className="text-[10px] text-emerald-400 font-bold">Crédito lançado</span>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Uma <strong className="text-red-400">despesa paga</strong> foi registrada em <strong>{transferSuccessInfo?.fromBank}</strong> e uma{' '}
+            <strong className="text-emerald-400">receita recebida</strong> foi registrada em <strong>{transferSuccessInfo?.toBank}</strong>.
+          </p>
+
+          <button
+            onClick={() => setTransferSuccessInfo(null)}
+            className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl transition-all hover:bg-blue-700 hover:scale-[1.01] active:scale-95 text-sm uppercase tracking-wider"
+          >
+            Entendido!
           </button>
         </div>
       </Modal>

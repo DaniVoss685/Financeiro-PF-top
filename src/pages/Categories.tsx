@@ -14,6 +14,7 @@ import {
   HelpCircle,
   Search,
   Check,
+  Info,
 } from 'lucide-react';
 
 export default function CategoriesPage() {
@@ -39,6 +40,11 @@ export default function CategoriesPage() {
 
   const expenseCategories = filteredCategories.filter(c => c.type === 'EXPENSE' || c.type === 'BOTH');
   const incomeCategories = filteredCategories.filter(c => c.type === 'INCOME' || c.type === 'BOTH');
+
+  // Categorias que aparecem em ambas as seções (tipo BOTH)
+  const bothCategoriesInExpenses = expenseCategories.filter(c => c.type === 'BOTH');
+  const bothCategoriesInIncomes = incomeCategories.filter(c => c.type === 'BOTH');
+
 
   const handleAddCategory = () => {
     if (!newCategory.name) return;
@@ -124,7 +130,20 @@ export default function CategoriesPage() {
               Nenhuma categoria de despesa encontrada.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <>
+              {/* Banner explicativo sobre categorias mistas */}
+              {bothCategoriesInExpenses.length > 0 && (
+                <div className="flex items-start gap-3 p-3.5 bg-blue-500/8 border border-blue-500/20 rounded-xl text-[11px] text-blue-600 dark:text-blue-400 mb-1">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <strong>Por que {bothCategoriesInExpenses.length > 1 ? 'estas categorias aparecem' : 'esta categoria aparece'} tanto em Despesas quanto em Receitas?</strong>{' '}
+                    Categorias como <strong>{bothCategoriesInExpenses.map(c => c.name).join(' e ')}</strong> podem ser usadas nos dois sentidos —
+                    por exemplo, uma transferência de dinheiro gera um <em>débito</em> em quem envia e um <em>crédito</em> em quem recebe.
+                    Por isso, elas ficam visíveis nas duas seções.
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {expenseCategories.map(cat => {
                 const catTransactions = transactions.filter(t => t.categoryId === cat.id && t.type === 'EXPENSE');
                 const spent = catTransactions.reduce((acc, t) => acc + t.amount, 0);
@@ -237,6 +256,7 @@ export default function CategoriesPage() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
 
@@ -250,7 +270,20 @@ export default function CategoriesPage() {
               Nenhuma categoria de receita encontrada.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <>
+              {/* Banner explicativo sobre categorias mistas */}
+              {bothCategoriesInIncomes.length > 0 && (
+                <div className="flex items-start gap-3 p-3.5 bg-blue-500/8 border border-blue-500/20 rounded-xl text-[11px] text-blue-600 dark:text-blue-400 mb-1">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <strong>Por que {bothCategoriesInIncomes.length > 1 ? 'estas categorias aparecem' : 'esta categoria aparece'} aqui e em Despesas?</strong>{' '}
+                    Categorias como <strong>{bothCategoriesInIncomes.map(c => c.name).join(' e ')}</strong> funcionam nos dois lados de uma operação.
+                    Quando você faz uma transferência ou empéstimo, o dinheiro <em>sai</em> de um lugar (despesa) e <em>entra</em> em outro (receita).
+                    Assim, o sistema garante que ambas as partes sejam registradas corretamente.
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {incomeCategories.map(cat => {
                 return (
                   <PremiumCard key={cat.id} className="p-6 flex flex-col border border-border/50 hover:border-primary/30 transition-all duration-300 group hover:shadow-xl hover:shadow-primary/5">
@@ -294,6 +327,7 @@ export default function CategoriesPage() {
                 );
               })}
             </div>
+            </>
           )}
         </div>
       </div>
