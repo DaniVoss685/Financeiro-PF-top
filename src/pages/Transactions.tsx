@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAppContext, Transaction, Category } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { formatCurrency, cn } from '../lib/utils';
-import { Search, Filter, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Share2, Printer, Download, Search as SearchIcon, ArrowUp, ArrowDown, CheckCircle2, Bell } from 'lucide-react';
+import { Search, Filter, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Share2, Printer, Download, Search as SearchIcon, ArrowUp, ArrowDown, CheckCircle2, Bell, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -37,6 +37,12 @@ function getCardDueDatesOptions(dueDay: number, closingDay: number = 5) {
 
   const monthsNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   
+  // Incluir a fatura imediatamente anterior (que já está fechada)
+  const prevD = new Date(firstValid.getFullYear(), firstValid.getMonth() - 1, dueDay);
+  const prevVal = format(prevD, 'yyyy-MM-dd');
+  const prevLabel = `${dueDay} de ${monthsNames[prevD.getMonth()]} de ${prevD.getFullYear()} (Fatura Fechada 🔒)`;
+  options.push({ value: prevVal, label: prevLabel });
+
   for (let i = 0; i < 12; i++) {
     const d = new Date(firstValid.getFullYear(), firstValid.getMonth() + i, dueDay);
     const val = format(d, 'yyyy-MM-dd');
@@ -1413,13 +1419,29 @@ export default function TransactionsPage() {
                   {formData.isInstallment && formData.installmentBasedOn === 'next_due_date' && formData.creditCardId ? (() => {
                     const card = creditCards.find(cc => cc.id === formData.creditCardId);
                     return card ? (
-                      <PremiumSelect
-                        label="Vencimento da Próxima Parcela"
-                        options={getCardDueDatesOptions(card.dueDay, card.closingDay)}
-                        value={formData.dueDate}
-                        onChange={val => setFormData({ ...formData, dueDate: val })}
-                        disableSort={true}
-                      />
+                      <>
+                        <PremiumSelect
+                          label="Vencimento da Próxima Parcela"
+                          options={getCardDueDatesOptions(card.dueDay, card.closingDay)}
+                          value={formData.dueDate}
+                          onChange={val => setFormData({ ...formData, dueDate: val })}
+                          disableSort={true}
+                        />
+                        {(() => {
+                          const options = getCardDueDatesOptions(card.dueDay, card.closingDay);
+                          if (options.length > 0 && formData.dueDate === options[0].value) {
+                            return (
+                              <div className="mt-2.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-2 text-amber-600 dark:text-amber-400 text-[11px] animate-in fade-in duration-200">
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold">Atenção:</span> Esta fatura já está fechada. A despesa será lançada nela retroativamente.
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </>
                     ) : null;
                   })() : (
                     <PremiumDatePicker 
