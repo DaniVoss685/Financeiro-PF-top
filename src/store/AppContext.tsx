@@ -193,6 +193,7 @@ const mockCategories: Category[] = [
   { id: 'cat-1', name: 'Alimentação', type: 'EXPENSE', color: '#ff6b6b', icon: 'utensils', isActive: true, monthlyGoal: 1500 },
   { id: 'cat-2', name: 'Moradia', type: 'EXPENSE', color: '#4dabf7', icon: 'home', isActive: true, monthlyGoal: 2500 },
   { id: 'cat-reimb', name: 'Empréstimos/Reembolsos', type: 'BOTH', color: '#fd7e14', icon: 'hand-coins', isActive: true },
+  { id: 'cat-transfer-internal', name: 'Transferência entre Contas', type: 'BOTH', color: '#3b82f6', icon: 'arrow-left-right', isActive: true, excludeFromAnalysis: true },
   { id: 'cat-3', name: 'Salário', type: 'INCOME', color: '#51cf66', icon: 'briefcase', isActive: true },
 ];
 

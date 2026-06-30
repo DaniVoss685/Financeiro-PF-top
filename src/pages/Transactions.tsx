@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAppContext, Transaction, Category } from '../store/AppContext';
 import { PremiumCard } from '../components/ui/PremiumComponents';
 import { formatCurrency, cn } from '../lib/utils';
-import { Search, Filter, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Share2, Printer, Download, Search as SearchIcon, ArrowUp, ArrowDown, CheckCircle2, Bell, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Share2, Printer, Download, Search as SearchIcon, ArrowUp, ArrowDown, CheckCircle2, Bell, AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, parseISO, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -630,6 +630,68 @@ export default function TransactionsPage() {
     affectLimitImmediately: true
   });
 
+  // Transfer between accounts state
+  const [transferData, setTransferData] = useState({
+    description: 'Transferência entre contas',
+    amount: 0,
+    fromBankId: '',
+    toBankId: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+  });
+
+  const handleExecuteTransfer = () => {
+    if (!transferData.fromBankId || !transferData.toBankId || transferData.amount <= 0) return;
+    if (transferData.fromBankId === transferData.toBankId) return;
+
+    const fromBank = banks.find(b => b.id === transferData.fromBankId);
+    const toBank = banks.find(b => b.id === transferData.toBankId);
+    if (!fromBank || !toBank) return;
+
+    const transferCatId = 'cat-transfer-internal';
+    const today = transferData.date + 'T12:00:00';
+
+    // Despesa na conta de origem
+    addTransaction({
+      description: `${transferData.description} para ${toBank.name}`,
+      amount: transferData.amount,
+      type: 'EXPENSE',
+      categoryId: transferCatId,
+      bankId: transferData.fromBankId,
+      competenceDate: today,
+      dueDate: today,
+      paymentDate: today,
+      status: 'PAID',
+      isRecurring: false,
+      isInstallment: false,
+      notes: 'Transferência entre contas'
+    });
+
+    // Receita na conta de destino
+    addTransaction({
+      description: `${transferData.description} de ${fromBank.name}`,
+      amount: transferData.amount,
+      type: 'INCOME',
+      categoryId: transferCatId,
+      bankId: transferData.toBankId,
+      competenceDate: today,
+      dueDate: today,
+      paymentDate: today,
+      status: 'RECEIVED',
+      isRecurring: false,
+      isInstallment: false,
+      notes: 'Transferência entre contas'
+    });
+
+    setTransferData({
+      description: 'Transferência entre contas',
+      amount: 0,
+      fromBankId: '',
+      toBankId: '',
+      date: format(new Date(), 'yyyy-MM-dd'),
+    });
+    setActiveModal(null);
+  };
+
   React.useEffect(() => {
     if (formData.isInstallment && formData.creditCardId) {
       if (formData.installmentBasedOn !== 'next_due_date') {
@@ -1158,6 +1220,16 @@ export default function TransactionsPage() {
             className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3.5 rounded-2xl font-bold shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer order-first sm:order-last"
           >
             <Plus className="w-5 h-5 shrink-0" /> Nova Transação
+          </button>
+
+          <button
+            onClick={() => {
+              setTransferData({ description: 'Transferência entre contas', amount: 0, fromBankId: defaultBankId || banks[0]?.id || '', toBankId: '', date: format(new Date(), 'yyyy-MM-dd') });
+              setActiveModal('new_transaction_transfer');
+            }}
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-3.5 rounded-2xl font-bold shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer order-first sm:order-last"
+          >
+            <ArrowLeftRight className="w-5 h-5 shrink-0" /> Transferência
           </button>
 
           <div className="flex gap-2 w-full sm:w-auto">
@@ -2131,6 +2203,74 @@ export default function TransactionsPage() {
             setActiveModal(null);
           }}
         />
+      </Modal>
+
+      {/* Modal de Transferência entre Contas */}
+      <Modal isOpen={activeModal === 'new_transaction_transfer'} onClose={() => setActiveModal(null)} title="Transferência entre Contas">
+        <div className="space-y-4 pb-4">
+          <div className="flex items-start gap-2.5 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-600 dark:text-blue-400 text-[11px]">
+            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <div>Uma <strong>despesa</strong> será lançada na conta de origem e uma <strong>receita</strong> na conta de destino, ambas com pagamento confirmado na data selecionada.</div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Descrição</label>
+            <input
+              type="text"
+              placeholder="Ex: Transferência entre contas"
+              value={transferData.description}
+              onChange={e => setTransferData({...transferData, description: e.target.value})}
+              className="w-full bg-card border border-border/60 rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-muted-foreground/50"
+            />
+          </div>
+
+          <PremiumCurrencyInput
+            label="Valor"
+            value={transferData.amount}
+            onChange={val => setTransferData({...transferData, amount: val})}
+          />
+
+          <PremiumSelect
+            label="Conta de Origem (saída)"
+            options={banks.map(b => ({ value: b.id, label: b.name, color: b.color }))}
+            value={transferData.fromBankId}
+            onChange={val => setTransferData({...transferData, fromBankId: val})}
+          />
+
+          <PremiumSelect
+            label="Conta de Destino (entrada)"
+            options={banks.filter(b => b.id !== transferData.fromBankId).map(b => ({ value: b.id, label: b.name, color: b.color }))}
+            value={transferData.toBankId}
+            onChange={val => setTransferData({...transferData, toBankId: val})}
+          />
+
+          <PremiumDatePicker
+            label="Data da Transferência"
+            value={transferData.date}
+            onChange={val => setTransferData({...transferData, date: val})}
+          />
+
+          {transferData.fromBankId && transferData.toBankId && transferData.fromBankId === transferData.toBankId && (
+            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-600 dark:text-amber-400 text-[11px]">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <div>A conta de origem e destino não podem ser iguais.</div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={!transferData.fromBankId || !transferData.toBankId || transferData.amount <= 0 || transferData.fromBankId === transferData.toBankId || !transferData.description.trim()}
+            onClick={handleExecuteTransfer}
+            className={cn(
+              "w-full text-white font-semibold py-4 rounded-xl mt-2 transition-all active:scale-95 text-sm uppercase tracking-wider font-bold cursor-pointer",
+              (!transferData.fromBankId || !transferData.toBankId || transferData.amount <= 0 || transferData.fromBankId === transferData.toBankId || !transferData.description.trim())
+                ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed border border-border"
+                : "bg-blue-600 hover:shadow-lg hover:shadow-blue-600/20 hover:scale-[1.01]"
+            )}
+          >
+            Confirmar Transferência
+          </button>
+        </div>
       </Modal>
 
     </div>
