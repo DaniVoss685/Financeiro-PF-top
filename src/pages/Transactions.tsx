@@ -976,7 +976,7 @@ export default function TransactionsPage() {
       isRecurring: formData.isRecurring,
       installmentTotal: formData.isInstallment ? Number(formData.installmentCount) : undefined,
       installmentCurrent: formData.isInstallment ? (editingTransaction?.installmentCurrent || 1) : undefined,
-      linkedGoalId: formData.linkedGoalId || undefined,
+      linkedGoalId: formData.creditCardId ? undefined : (formData.linkedGoalId || undefined),
       affectLimitImmediately: formData.affectLimitImmediately !== false
     };
 
@@ -1405,7 +1405,7 @@ export default function TransactionsPage() {
               </div>
             )}
 
-            {formData.type === 'EXPENSE' && (
+            {formData.type === 'EXPENSE' && !formData.creditCardId && (
               <PremiumSelect 
                 label="Vincular a uma Meta de Reserva"
                 options={[{ value: '', label: 'Não vincular' }, ...goals.filter(g => g.type === 'SAVINGS').map(g => ({ value: g.id, label: g.name, color: g.color }))]}

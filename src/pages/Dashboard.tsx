@@ -342,7 +342,7 @@ export default function DashboardPage() {
       status: newTx.isPaid ? (type === 'INCOME' ? 'RECEIVED' : 'PAID') : 'OPEN' as any,
       isRecurring: newTx.isRecurring,
       isPartial: newTx.isPartial,
-      linkedGoalId: newTx.linkedGoalId || undefined,
+      linkedGoalId: newTx.creditCardId ? undefined : (newTx.linkedGoalId || undefined),
       affectLimitImmediately: newTx.affectLimitImmediately !== false
     };
 
@@ -935,7 +935,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {activeModal === 'new_transaction_expense' && (
+          {activeModal === 'new_transaction_expense' && !newTx.creditCardId && (
             <PremiumSelect 
               label="Vincular a uma Meta de Reserva"
               options={[{ value: '', label: 'Não vincular' }, ...goals.filter(g => g.type === 'SAVINGS').map(g => ({ value: g.id, label: g.name, color: g.color }))]}
