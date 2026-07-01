@@ -803,9 +803,8 @@ export default function DashboardPage() {
     
     const startOfYear = new Date(selectedYear, 0, 1);
     const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59);
-
-    // Filtrar as transações reais não excluídas da análise para o fluxo de caixa
-    const nonExcludedTxs = transactions.filter(t => {
+    // Para o cálculo do saldo inicial de partida histórico
+    const nonExcludedTxsForInitial = transactions.filter(t => {
       const cat = categories.find(c => c.id === t.categoryId);
       const b = t.bankId ? banks.find(bank => bank.id === t.bankId) : null;
       const card = t.creditCardId ? creditCards.find(c => c.id === t.creditCardId) : null;
@@ -814,7 +813,7 @@ export default function DashboardPage() {
     });
 
     let initialBalance = totalBalance;
-    nonExcludedTxs.forEach(t => {
+    nonExcludedTxsForInitial.forEach(t => {
       const d = new Date(t.paymentDate || t.competenceDate);
       if (t.status === 'PAID' || t.status === 'RECEIVED') {
         const competence = new Date(t.competenceDate);
@@ -826,17 +825,15 @@ export default function DashboardPage() {
     });
 
     const allProjectedTxs: any[] = [];
-    const recurringTxs = nonExcludedTxs.filter(t => t.isRecurring);
+    const recurringTxs = transactions.filter(t => t.isRecurring);
 
     recurringTxs.forEach(rt => {
       const rtStart = new Date(rt.competenceDate);
       
-      // Limitar a data de início da simulação para no máximo 12 meses antes do início de selectedYear
       const limitDate = new Date(selectedYear, -12, 1);
       const simStartDate = rtStart > limitDate ? rtStart : limitDate;
       
       let current = new Date(simStartDate.getFullYear(), simStartDate.getMonth(), 1);
-      // Simular competências até o final do selectedYear
       const endSimDate = new Date(selectedYear, 11, 31);
 
       while (current <= endSimDate) {
@@ -897,7 +894,22 @@ export default function DashboardPage() {
       let monthExpense = 0;
       const monthTransactions: any[] = [];
 
-      nonExcludedTxs.forEach(t => {
+      // Filtragem condicional das transações do mês (se for mês futuro, incluímos contas excluídas da análise)
+      transactions.forEach(t => {
+        const cat = categories.find(c => c.id === t.categoryId);
+        const b = t.bankId ? banks.find(bank => bank.id === t.bankId) : null;
+        const card = t.creditCardId ? creditCards.find(c => c.id === t.creditCardId) : null;
+        const cardBank = card ? banks.find(bank => bank.id === card.bankId) : null;
+
+        // Categorias ignoradas são excluídas sempre
+        if (cat?.excludeFromAnalysis) return;
+
+        // Bancos ignorados são excluídos apenas em meses não futuros (atual e passados)
+        if (!isFuture) {
+          if (b?.excludeFromAnalysis) return;
+          if (cardBank?.excludeFromAnalysis) return;
+        }
+
         const d = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
         if (d.getFullYear() === selectedYear && d.getMonth() === m) {
           if (t.type === 'INCOME') monthIncome += t.amount;
@@ -908,6 +920,19 @@ export default function DashboardPage() {
 
       if (isFuture || isCurrent) {
         allProjectedTxs.forEach(pt => {
+          const cat = categories.find(c => c.id === pt.categoryId);
+          const b = pt.bankId ? banks.find(bank => bank.id === pt.bankId) : null;
+          const card = pt.creditCardId ? creditCards.find(c => c.id === pt.creditCardId) : null;
+          const cardBank = card ? banks.find(bank => bank.id === card.bankId) : null;
+
+          if (cat?.excludeFromAnalysis) return;
+
+          // Bancos ignorados nas projeções futuras virtuais são excluídos apenas se não for mês futuro
+          if (!isFuture) {
+            if (b?.excludeFromAnalysis) return;
+            if (cardBank?.excludeFromAnalysis) return;
+          }
+
           const d = new Date(pt.paymentDate || (pt.creditCardId ? pt.dueDate : pt.competenceDate));
           if (d.getFullYear() === selectedYear && d.getMonth() === m) {
             if (pt.type === 'INCOME') monthIncome += pt.amount;
