@@ -747,9 +747,21 @@ export default function DashboardPage() {
     return 0;
   });
 
-  const totalBalance = banks.reduce((acc, bank) => acc + bank.currentBalance, 0);
+  const totalBalance = banks
+    .filter(bank => !bank.excludeFromAnalysis)
+    .reduce((acc, bank) => acc + bank.currentBalance, 0);
 
   const filteredForStats = getVisibleTransactions().filter(tx => {
+    // Excluir transações cuja categoria ou banco associado esteja marcado para ignorar na análise
+    const category = categories.find(c => c.id === tx.categoryId);
+    const bank = tx.bankId ? banks.find(b => b.id === tx.bankId) : null;
+    const card = tx.creditCardId ? creditCards.find(c => c.id === tx.creditCardId) : null;
+    const cardBank = card ? banks.find(b => b.id === card.bankId) : null;
+
+    if (category?.excludeFromAnalysis) return false;
+    if (bank?.excludeFromAnalysis) return false;
+    if (cardBank?.excludeFromAnalysis) return false;
+
     let matchesDate = true;
     const txDate = new Date(tx.paymentDate || (tx.creditCardId ? tx.dueDate : tx.competenceDate));
 
@@ -774,7 +786,12 @@ export default function DashboardPage() {
     .reduce((acc, t) => acc + t.amount, 0);
   
   const reimbursementReceivables = transactions
-    .filter(t => t.categoryId === 'cat-reimb' && t.type === 'INCOME' && (t.status === 'OPEN' || t.status === 'OVERDUE'))
+    .filter(t => {
+      if (t.categoryId !== 'cat-reimb' || t.type !== 'INCOME' || (t.status !== 'OPEN' && t.status !== 'OVERDUE')) return false;
+      const b = t.bankId ? banks.find(bank => bank.id === t.bankId) : null;
+      if (b?.excludeFromAnalysis) return false;
+      return true;
+    })
     .reduce((acc, t) => acc + t.amount, 0);
   
   const projectedBalance = totalBalance + totalReceivables - totalToPay;
@@ -787,8 +804,17 @@ export default function DashboardPage() {
     const startOfYear = new Date(selectedYear, 0, 1);
     const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59);
 
+    // Filtrar as transações reais não excluídas da análise para o fluxo de caixa
+    const nonExcludedTxs = transactions.filter(t => {
+      const cat = categories.find(c => c.id === t.categoryId);
+      const b = t.bankId ? banks.find(bank => bank.id === t.bankId) : null;
+      const card = t.creditCardId ? creditCards.find(c => c.id === t.creditCardId) : null;
+      const cardBank = card ? banks.find(bank => bank.id === card.bankId) : null;
+      return !(cat?.excludeFromAnalysis || b?.excludeFromAnalysis || cardBank?.excludeFromAnalysis);
+    });
+
     let initialBalance = totalBalance;
-    transactions.forEach(t => {
+    nonExcludedTxs.forEach(t => {
       const d = new Date(t.paymentDate || t.competenceDate);
       if (t.status === 'PAID' || t.status === 'RECEIVED') {
         const competence = new Date(t.competenceDate);
@@ -800,7 +826,7 @@ export default function DashboardPage() {
     });
 
     const allProjectedTxs: any[] = [];
-    const recurringTxs = transactions.filter(t => t.isRecurring);
+    const recurringTxs = nonExcludedTxs.filter(t => t.isRecurring);
 
     recurringTxs.forEach(rt => {
       const rtStart = new Date(rt.competenceDate);
@@ -871,7 +897,7 @@ export default function DashboardPage() {
       let monthExpense = 0;
       const monthTransactions: any[] = [];
 
-      transactions.forEach(t => {
+      nonExcludedTxs.forEach(t => {
         const d = new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate));
         if (d.getFullYear() === selectedYear && d.getMonth() === m) {
           if (t.type === 'INCOME') monthIncome += t.amount;
@@ -1842,14 +1868,26 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest ml-1">Saldos por Conta</p>
             {banks.map(bank => (
-              <div key={bank.id} className="flex items-center justify-between p-4 bg-muted/20 border border-border/50 rounded-2xl">
+              <div key={bank.id} className={cn(
+                "flex items-center justify-between p-4 bg-muted/20 border border-border/50 rounded-2xl transition-all",
+                bank.excludeFromAnalysis && "opacity-50 border-dashed bg-muted/5 select-none"
+              )}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${bank.color}20`, color: bank.color }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${bank.color}20`, color: bank.color }}>
                     <Wallet className="w-5 h-5" />
                   </div>
-                  <span className="text-base font-bold text-foreground/90">{bank.name}</span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-base font-bold text-foreground/90 truncate">{bank.name}</span>
+                    {bank.excludeFromAnalysis && (
+                      <span className="text-[9px] text-amber-500 font-bold leading-none mt-0.5 flex items-center gap-1">
+                        ⚠️ Ignorado no saldo consolidado e projeções
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className="text-base font-black text-foreground">{formatCurrency(bank.currentBalance)}</span>
+                <span className={cn("text-base font-black text-foreground shrink-0", bank.excludeFromAnalysis && "line-through opacity-80")}>
+                  {formatCurrency(bank.currentBalance)}
+                </span>
               </div>
             ))}
           </div>
@@ -1912,11 +1950,17 @@ export default function DashboardPage() {
              <p className="text-[10px] font-bold text-muted-foreground ml-1">Composição das Contas</p>
              <div className="grid grid-cols-2 gap-2">
                {banks.map(bank => (
-                 <div key={bank.id} className="p-2.5 bg-muted/20 border border-border/50 rounded-xl flex items-center justify-between">
-                    <span className="text-[10px] font-medium text-foreground/80 truncate pr-2">{bank.name}</span>
-                    <span className="text-[10px] font-bold">{formatCurrency(bank.currentBalance)}</span>
-                 </div>
-               ))}
+                  <div key={bank.id} className={cn(
+                    "p-2.5 bg-muted/20 border border-border/50 rounded-xl flex items-center justify-between",
+                    bank.excludeFromAnalysis && "opacity-50 border-dashed"
+                  )}>
+                     <div className="flex flex-col min-w-0 pr-2">
+                       <span className="text-[10px] font-medium text-foreground/80 truncate">{bank.name}</span>
+                       {bank.excludeFromAnalysis && <span className="text-[7px] text-amber-500 font-bold leading-none mt-0.5">Ignorado</span>}
+                     </div>
+                     <span className={cn("text-[10px] font-bold shrink-0", bank.excludeFromAnalysis && "line-through opacity-70")}>{formatCurrency(bank.currentBalance)}</span>
+                  </div>
+                ))}
              </div>
           </div>
           
@@ -2770,14 +2814,26 @@ export default function DashboardPage() {
                     {banks.map(bank => (
                       <div key={bank.id} 
                         onClick={() => setBankDetailInfo(bank)}
-                        className="flex items-center justify-between p-3 bg-muted/20 border border-border/50 rounded-2xl hover:border-primary/30 transition-all cursor-pointer">
+                        className={cn(
+                          "flex items-center justify-between p-3 bg-muted/20 border border-border/50 rounded-2xl hover:border-primary/30 transition-all cursor-pointer",
+                          bank.excludeFromAnalysis && "opacity-50 border-dashed"
+                        )}>
                         <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${bank.color}20`, color: bank.color }}>
+                           <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${bank.color}20`, color: bank.color }}>
                               <Wallet className="w-5 h-5" />
                            </div>
-                           <span className="text-base font-bold text-foreground/90">{bank.name}</span>
+                           <div className="flex flex-col min-w-0">
+                             <span className="text-base font-bold text-foreground/90 truncate">{bank.name}</span>
+                             {bank.excludeFromAnalysis && (
+                               <span className="text-[8px] text-amber-500 font-bold leading-none mt-0.5">
+                                 Fora do saldo consolidado
+                               </span>
+                             )}
+                           </div>
                         </div>
-                        <span className="text-base font-black text-foreground">{formatCurrency(bank.currentBalance)}</span>
+                        <span className={cn("text-base font-black text-foreground shrink-0", bank.excludeFromAnalysis && "line-through opacity-70")}>
+                          {formatCurrency(bank.currentBalance)}
+                        </span>
                       </div>
                     ))}
                  </div>
@@ -2936,11 +2992,19 @@ export default function DashboardPage() {
                         ? 0 // Handle year wrap if needed, but for now just show next
                         : cashFlowData[(currentMonthIdx + 1) % 12]?.balance || 0;
 
+                      const nonExcludedTxs = transactions.filter(t => {
+                        const cat = categories.find(c => c.id === t.categoryId);
+                        const b = t.bankId ? banks.find(bank => bank.id === t.bankId) : null;
+                        const card = t.creditCardId ? creditCards.find(c => c.id === t.creditCardId) : null;
+                        const cardBank = card ? banks.find(bank => bank.id === card.bankId) : null;
+                        return !(cat?.excludeFromAnalysis || b?.excludeFromAnalysis || cardBank?.excludeFromAnalysis);
+                      });
+
                       const topCategory = categories
-                        .filter(c => c.type === 'EXPENSE')
+                        .filter(c => c.type === 'EXPENSE' && !c.excludeFromAnalysis)
                         .map(c => ({
                           name: c.name,
-                          amount: transactions
+                          amount: nonExcludedTxs
                             .filter(t => t.categoryId === c.id && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getMonth() === currentMonthIdx && new Date(t.paymentDate || (t.creditCardId ? t.dueDate : t.competenceDate)).getFullYear() === selectedYear)
                             .reduce((acc, t) => acc + t.amount, 0)
                         }))
